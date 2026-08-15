@@ -12,6 +12,7 @@ import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { demoEvents, demoRuns, demoSnapshots } from "../app/admin/demo-data";
+import type { OperatorStudyStatus } from "../src/server/study/types";
 import {
   AlertIcon,
   CheckIcon,
@@ -75,6 +76,12 @@ function isRunEvent(value: unknown): value is DashboardRunEvent {
   return typeof event.event_id === "string" && typeof event.summary === "string" && typeof event.occurred_at === "string";
 }
 
+function isOperatorStudyStatus(value: unknown): value is OperatorStudyStatus {
+  if (!value || typeof value !== "object") return false;
+  const status = value as Partial<OperatorStudyStatus>;
+  return status.contract_version === "2" && typeof status.job_id === "string" && Boolean(status.gate);
+}
+
 function StatusGlyph({ status }: { status: DashboardStageStatus }) {
   if (status === "complete") return <CheckIcon />;
   if (status === "running") return <PlayIcon />;
@@ -135,14 +142,16 @@ function RunRail({
 }
 
 function Rundown({ stages, currentStage }: { stages: DashboardStage[]; currentStage: DashboardStage["id"] }) {
+  const order: DashboardStage["id"][] = ["intake", "payment", "capture", "variants", "replay", "study", "report", "delivery"];
+  const orderedStages = [...stages].sort((left, right) => order.indexOf(left.id) - order.indexOf(right.id));
   return (
     <section className="rundown" aria-labelledby="rundown-title">
       <div className="section-heading">
         <h2 id="rundown-title">Rundown</h2>
-        <span>{stages.filter((item) => item.status === "complete").length}/{stages.length}</span>
+        <span>{orderedStages.filter((item) => item.status === "complete").length}/{orderedStages.length}</span>
       </div>
       <ol className="cue-list">
-        {stages.map((item, index) => (
+        {orderedStages.map((item, index) => (
           <li className="cue" data-current={item.id === currentStage} data-status={item.status} key={item.id}>
             <span className="cue-number">{stageNumber(index)}</span>
             <span className="cue-glyph" aria-hidden="true"><StatusGlyph status={item.status} /></span>
@@ -292,6 +301,139 @@ function ReplayPanel({ replay }: { replay: DashboardRunSnapshot["replay"] }) {
   );
 }
 
+const GATE_LABELS: Record<string, string> = {
+  control_matches_source: "Control matches source",
+  challenger_has_exactly_one_change: "One controlled change",
+  locked_facts_match: "Price, terms, legal, and claims locked",
+  desktop_passes: "Desktop pages",
+  mobile_passes: "Mobile pages",
+  purchase_journey_passes: "Purchase journey",
+  stop_journey_passes: "Stop journey",
+  validation_passes: "Form validation",
+  survey_submission_passes: "Shared survey",
+  assignment_persistence_passes: "Stable assignment",
+  mocked_terac_redirect_passes: "Mock redirect and PB fallback",
+  replay_run_present: "Replay run present",
+  replay_blocking_findings: "No Replay blockers",
+  pages_approved: "Pages approved",
+  quote_approved: "Quote approved",
+  founder_payment_confirmed: "Founder payment confirmed",
+  terac_credit_funding_confirmed: "Sponsor credits confirmed",
+};
+
+function PrelaunchDesk({
+  status,
+  busy,
+  onApprove,
+  onUnlockMain,
+}: {
+  status: OperatorStudyStatus;
+  busy?: string;
+  onApprove: (kind: "pages" | "quote") => Promise<void>;
+  onUnlockMain: () => Promise<void>;
+}) {
+  const [copied, setCopied] = useState<"brief" | "link">();
+  const copy = async (kind: "brief" | "link", value: string) => {
+    await navigator.clipboard.writeText(value);
+    setCopied(kind);
+    window.setTimeout(() => setCopied(undefined), 1200);
+  };
+  const checks = Object.entries(status.gate.checks);
+  const totalCost = status.funding.participant_subtotal_cents + status.funding.terac_platform_fee_cents;
+
+  return (
+    <>
+      <section className="artifacts" aria-labelledby="launch-control-title">
+        <div className="section-heading">
+          <h2 id="launch-control-title">Launch control</h2>
+          <span>{status.terac_mode === "mock" ? "Mock only" : status.terac_mode}</span>
+        </div>
+        <div className="artifact-list">
+          <div className="artifact-row">
+            <span className="file-mark">FIT</span>
+            <span className="artifact-copy"><strong>Target customer</strong><span>{status.target_customer.description}</span></span>
+            <time>{status.target_customer.must_match.length} rules</time>
+            <span />
+          </div>
+          <div className="artifact-row">
+            <span className="file-mark">$</span>
+            <span className="artifact-copy"><strong>{money(totalCost, "usd")} quote</strong><span>10 people × $5 + {money(status.funding.terac_platform_fee_cents, "usd")} fee</span></span>
+            <time>{status.funding.sponsor_credits_confirmed ? "Funded" : "Unfunded"}</time>
+            <span />
+          </div>
+          <div className="artifact-row">
+            <span className="file-mark">WEB</span>
+            <span className="artifact-copy"><strong>Page bundle</strong><span>{status.artifact_bundle_hash.slice(0, 16)}</span></span>
+            <time>{status.gate.checks.pages_approved ? "Approved" : "Review"}</time>
+            <button className="secondary-button" type="button" disabled={Boolean(busy) || status.gate.checks.pages_approved} onClick={() => void onApprove("pages")}>{busy === "pages" ? "Saving…" : status.gate.checks.pages_approved ? "Approved" : "Approve"}</button>
+          </div>
+          <div className="artifact-row">
+            <span className="file-mark">10×</span>
+            <span className="artifact-copy"><strong>Terac quote</strong><span>10 min · $5 equal pay · $50 before fee</span></span>
+            <time>{status.gate.checks.quote_approved ? "Approved" : "Review"}</time>
+            <button className="secondary-button" type="button" disabled={Boolean(busy) || status.gate.checks.quote_approved} onClick={() => void onApprove("quote")}>{busy === "quote" ? "Saving…" : status.gate.checks.quote_approved ? "Approved" : "Approve"}</button>
+          </div>
+        </div>
+      </section>
+
+      <section className="event-ledger" aria-labelledby="gate-title">
+        <div className="section-heading">
+          <h2 id="gate-title">Prelaunch gate</h2>
+          <span>{status.gate.open ? "Open" : `${checks.filter(([, value]) => value === true || value === 0).length}/${checks.length}`}</span>
+        </div>
+        <div className="ledger-list">
+          {checks.map(([key, value], index) => {
+            const passed = value === true || value === 0;
+            return (
+              <div className="ledger-row" key={key}>
+                <time>{String(index + 1).padStart(2, "0")}</time>
+                <span className="ledger-dot" data-status={passed ? "complete" : "waiting"} aria-hidden="true" />
+                <strong>{passed ? "Pass" : "Wait"}</strong>
+                <span>{GATE_LABELS[key] ?? sentenceCase(key)}</span>
+                <span className="ledger-stage">Gate</span>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <div className="evidence-grid">
+        <section className="study-panel" aria-labelledby="release-title">
+          <div className="section-heading">
+            <h2 id="release-title">Participant release</h2>
+            <span>{sentenceCase(status.study.phase)}</span>
+          </div>
+          <div className="study-count"><strong>{status.study.total_completed}</strong><span>/ 10 complete</span></div>
+          <div className="assignment-bar" aria-label={`${status.study.a_completed} of 5 assigned to A and ${status.study.b_completed} of 5 assigned to B`}>
+            <span className="assignment-a" style={{ width: `${status.study.a_completed * 10}%` }} />
+            <span className="assignment-b" style={{ width: `${status.study.b_completed * 10}%` }} />
+          </div>
+          <dl className="study-stats">
+            <div><dt>Pilot</dt><dd>{status.study.pilot_completed}/2</dd></div>
+            <div><dt>Main</dt><dd>{status.study.main_completed}/8</dd></div>
+            <div><dt>Total</dt><dd>{status.study.total_completed}/10</dd></div>
+            <div><dt>A locked</dt><dd>5</dd></div>
+            <div><dt>B locked</dt><dd>5</dd></div>
+          </dl>
+          {status.pilot_review_required ? <button className="secondary-button" type="button" disabled={Boolean(busy)} onClick={() => void onUnlockMain()}>{busy === "pilot" ? "Opening…" : "Open remaining 8"}</button> : null}
+        </section>
+
+        <section className="replay-panel" aria-labelledby="terac-actions-title">
+          <div className="section-heading">
+            <h2 id="terac-actions-title">Terac handoff</h2>
+            <span className="live-state" data-status={status.gate.open ? "ready" : "queued"}><i aria-hidden="true" />{status.gate.open ? "Pilot ready" : "Gate locked"}</span>
+          </div>
+          <div className="replay-now"><span>Internal mock</span><strong>$5</strong></div>
+          <div className="replay-foot">
+            <button className="secondary-button" type="button" onClick={() => void copy("brief", status.brief)}>{copied === "brief" ? "Copied" : "Copy brief"}</button>
+            <button className="secondary-button" type="button" onClick={() => void copy("link", status.study_url)}>{copied === "link" ? "Copied" : "Copy study link"}</button>
+          </div>
+        </section>
+      </div>
+    </>
+  );
+}
+
 function Artifacts({ artifacts }: { artifacts: DashboardRunSnapshot["artifacts"] }) {
   const [copied, setCopied] = useState<string>();
 
@@ -398,6 +540,8 @@ export function OperatorDashboard() {
   const [railOpen, setRailOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string>();
+  const [operatorStudy, setOperatorStudy] = useState<OperatorStudyStatus>();
+  const [approvalBusy, setApprovalBusy] = useState<string>();
 
   const selectedListItem = useMemo(() => runs.find((run) => run.job_id === selectedId), [runs, selectedId]);
 
@@ -454,6 +598,53 @@ export function OperatorDashboard() {
     }
   }, []);
 
+  const loadOperatorStudy = useCallback(async (runId: string) => {
+    try {
+      const response = await fetch(`/api/admin/runs/${encodeURIComponent(runId)}/approvals`, { cache: "no-store" });
+      const envelope = (await response.json()) as ApiEnvelope<unknown>;
+      if (!response.ok || !envelope.ok || !isOperatorStudyStatus(envelope.data)) {
+        setOperatorStudy(undefined);
+        return;
+      }
+      setOperatorStudy(envelope.data);
+    } catch {
+      setOperatorStudy(undefined);
+    }
+  }, []);
+
+  const approve = useCallback(async (kind: "pages" | "quote") => {
+    if (!operatorStudy) return;
+    setApprovalBusy(kind);
+    try {
+      const response = await fetch(`/api/admin/runs/${encodeURIComponent(selectedId)}/approvals/${kind}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ artifact_bundle_hash: operatorStudy.artifact_bundle_hash }),
+      });
+      const envelope = (await response.json()) as ApiEnvelope<unknown>;
+      if (!response.ok || !envelope.ok || !isOperatorStudyStatus(envelope.data)) throw new Error("Approval failed");
+      setOperatorStudy(envelope.data);
+    } catch {
+      setError("Approval failed. Refresh and try again.");
+    } finally {
+      setApprovalBusy(undefined);
+    }
+  }, [operatorStudy, selectedId]);
+
+  const unlockMain = useCallback(async () => {
+    setApprovalBusy("pilot");
+    try {
+      const response = await fetch(`/api/admin/runs/${encodeURIComponent(selectedId)}/approvals/pilot`, { method: "POST" });
+      const envelope = (await response.json()) as ApiEnvelope<unknown>;
+      if (!response.ok || !envelope.ok || !isOperatorStudyStatus(envelope.data)) throw new Error("Pilot unlock failed");
+      setOperatorStudy(envelope.data);
+    } catch {
+      setError("Complete one pilot session on each page before opening the remaining eight.");
+    } finally {
+      setApprovalBusy(undefined);
+    }
+  }, [selectedId]);
+
   const refresh = useCallback(async () => {
     setRefreshing(true);
     const apiAvailable = await loadRuns();
@@ -472,7 +663,8 @@ export function OperatorDashboard() {
       setSnapshot(demo);
     }
     void loadSnapshot(selectedId);
-  }, [loadSnapshot, selectedId]);
+    void loadOperatorStudy(selectedId);
+  }, [loadOperatorStudy, loadSnapshot, selectedId]);
 
   useEffect(() => {
     if (needsAccess) return;
@@ -573,6 +765,8 @@ export function OperatorDashboard() {
             {snapshot.blocker ? <code>{snapshot.blocker.code}</code> : <span className="action-actor">{sentenceCase(snapshot.current_stage)}</span>}
           </aside>
         </div>
+
+        {operatorStudy ? <PrelaunchDesk status={operatorStudy} busy={approvalBusy} onApprove={approve} onUnlockMain={unlockMain} /> : null}
 
         <WorkSurfaces sandboxes={snapshot.sandboxes} />
 

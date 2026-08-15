@@ -1,0 +1,440 @@
+.shell {
+  min-height: 100vh;
+  padding-bottom: 88px;
+  color: var(--harbor-ink);
+  background: var(--worktop);
+}
+
+.topbar {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  gap: 11px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.mark {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--white);
+  background: var(--harbor);
+  font-size: var(--size-xxs);
+  font-weight: 800;
+}
+
+.progress {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--size-xxs);
+  font-variation-settings: "MONO" 1;
+}
+
+.taskStrip {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  padding: 7px 18px;
+  color: var(--harbor-deep);
+  background: var(--brass-pale);
+  font-size: var(--size-xxs);
+}
+
+.workspace {
+  width: min(100% - 32px, 960px);
+  margin: 44px auto;
+}
+
+.brief {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: 7px 9px 0 color-mix(in oklch, var(--harbor) 22%, var(--line));
+}
+
+.briefMain,
+.fitPanel,
+.pageModule,
+.review,
+.survey,
+.done {
+  padding: 32px;
+}
+
+.briefMain {
+  min-height: 430px;
+  color: var(--white);
+  background: var(--harbor-deep);
+}
+
+.wordmark {
+  display: block;
+  margin-bottom: 54px;
+  font-size: var(--size-xxs);
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.brief h1,
+.pageModule h1,
+.review h1,
+.survey h1,
+.done h1 {
+  max-width: 19ch;
+  margin: 0;
+  color: inherit;
+  font-size: var(--size-xl);
+}
+
+.briefMain > p,
+.support,
+.sectionHead p,
+.done p {
+  max-width: 58ch;
+  margin-top: 13px;
+  color: color-mix(in oklch, currentColor 68%, transparent);
+  font-size: var(--size-sm);
+}
+
+.briefMain ul {
+  display: grid;
+  gap: 8px;
+  margin: 42px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fitPanel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.fitPanel h2 {
+  margin-bottom: 12px;
+}
+
+.fitPanel p {
+  color: var(--muted);
+}
+
+.checkRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 28px 0;
+}
+
+.checkRow input,
+.plan input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--harbor);
+}
+
+.primary,
+.stopAction,
+.errorPanel button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 9px;
+  font-weight: 740;
+}
+
+.primary {
+  padding: 0 18px;
+  color: var(--white);
+  background: var(--harbor);
+}
+
+.primary:hover {
+  background: var(--harbor-deep);
+}
+
+.primary:disabled {
+  opacity: 0.48;
+}
+
+.pageModule,
+.review,
+.survey,
+.done {
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+
+.pageModule > .wordmark,
+.review .wordmark {
+  margin-bottom: 38px;
+  color: var(--harbor);
+}
+
+.planList {
+  display: grid;
+  gap: 12px;
+  margin: 34px 0 22px;
+}
+
+.plan {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 17px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--white);
+}
+
+.plan[data-selected="true"] {
+  border-color: var(--harbor);
+  background: var(--harbor-pale);
+}
+
+.plan span {
+  display: flex;
+  flex-direction: column;
+}
+
+.plan span:last-child {
+  text-align: right;
+}
+
+.plan small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.sectionHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.simulation,
+.decisionMark {
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: var(--harbor-deep);
+  background: var(--brass-pale);
+  font-size: var(--size-xxs);
+  font-weight: 760;
+}
+
+.fakeFields,
+.survey {
+  display: grid;
+  gap: 17px;
+}
+
+.fakeFields {
+  grid-template-columns: 1fr 0.55fr;
+  margin: 34px 0 22px;
+}
+
+.fakeFields label:last-child {
+  grid-column: 1 / -1;
+}
+
+.fakeFields label,
+.survey label {
+  display: grid;
+  gap: 7px;
+  font-size: var(--size-xxs);
+  font-weight: 720;
+}
+
+.fakeFields input,
+.survey textarea,
+.survey select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--harbor-ink);
+  background: var(--white);
+  font: inherit;
+  font-weight: 450;
+}
+
+.fakeFields input,
+.survey select {
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+.survey textarea {
+  min-height: 76px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.review {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 28px;
+}
+
+.total {
+  display: flex;
+  min-width: 160px;
+  flex-direction: column;
+  text-align: right;
+}
+
+.total span {
+  color: var(--muted);
+}
+
+.total strong {
+  margin-top: 5px;
+  font-size: var(--size-lg);
+}
+
+.notice {
+  grid-column: 1 / -1;
+  padding: 13px;
+  border-radius: 10px;
+  color: var(--harbor-deep);
+  background: var(--brass-pale);
+}
+
+.review .primary {
+  grid-column: 1 / -1;
+}
+
+.survey .sectionHead {
+  margin-bottom: 12px;
+}
+
+.scoreGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 17px;
+}
+
+.inlineError {
+  margin: 0;
+  color: var(--danger);
+}
+
+.stopAction {
+  position: fixed;
+  z-index: 20;
+  right: 22px;
+  bottom: 20px;
+  padding: 0 18px;
+  color: var(--harbor-deep);
+  background: var(--brass);
+  box-shadow: 4px 5px 0 color-mix(in oklch, var(--brass) 42%, var(--line));
+}
+
+.done {
+  display: grid;
+  min-height: 380px;
+  place-items: center;
+  align-content: center;
+  text-align: center;
+}
+
+.done code {
+  margin-top: 24px;
+  padding: 12px 16px;
+  border-radius: 9px;
+  color: var(--harbor-deep);
+  background: var(--brass-pale);
+  font-family: inherit;
+  font-variation-settings: "MONO" 1;
+  font-weight: 750;
+}
+
+.loading {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  color: var(--harbor-deep);
+  background: var(--worktop);
+}
+
+.errorPanel {
+  display: grid;
+  width: min(100%, 420px);
+  gap: 10px;
+  padding: 28px;
+  border-radius: var(--radius);
+  color: var(--danger);
+  background: var(--danger-pale);
+}
+
+.errorPanel button {
+  margin-top: 10px;
+  color: var(--white);
+  background: var(--danger);
+}
+
+@media (max-width: 720px) {
+  .taskStrip {
+    justify-content: flex-start;
+    gap: 12px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .workspace {
+    margin-top: 22px;
+  }
+
+  .brief {
+    grid-template-columns: 1fr;
+  }
+
+  .briefMain {
+    min-height: 330px;
+  }
+
+  .briefMain,
+  .fitPanel,
+  .pageModule,
+  .review,
+  .survey,
+  .done {
+    padding: 22px;
+  }
+
+  .wordmark {
+    margin-bottom: 34px;
+  }
+
+  .fakeFields,
+  .scoreGrid,
+  .review {
+    grid-template-columns: 1fr;
+  }
+
+  .fakeFields label:last-child,
+  .review .notice,
+  .review .primary {
+    grid-column: auto;
+  }
+
+  .total {
+    text-align: left;
+  }
+
+  .stopAction {
+    right: 13px;
+    bottom: 13px;
+    left: 13px;
+    width: calc(100% - 26px);
+  }
+}
