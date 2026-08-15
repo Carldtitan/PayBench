@@ -46,6 +46,25 @@ The participant checkout is simulated. PayBench never asks a participant for a r
 
 Stripe supports `client_reference_id` on Payment Links. Stripe returns it in the completed-session webhook. It must contain no sensitive data. See [Stripe Payment Link tracking](https://docs.stripe.com/payment-links/url-parameters).
 
+## Internal run dashboard
+
+The dashboard is for the PayBench operator only. Founders, Terac scouts, and Terac participants never see it.
+
+The left rail lists founders and their runs. Selecting one run opens one source-of-truth workspace with:
+
+- the submitted website and real Stripe payment state;
+- one ordered run rail from intake to Linq delivery;
+- the current blocker and next automatic action;
+- two live Superserve work surfaces: A reproducing the source paywall and B applying one controlled change;
+- Terac scout state, recruitment progress, valid sessions, rejected sessions, and A/B balance;
+- the current Replay QA check, live run link, and blocking findings;
+- evidence, page previews, generated artifacts, report state, and delivery state;
+- a timestamped event ledger for every payment, worker callback, transition, retry, and failure.
+
+The dashboard uses short labels. A label opens detail only when the operator asks for it. It never exposes sponsor credentials, card data, raw completion codes, phone numbers, active participant assignments, or survey free text.
+
+The dashboard does not invent status. It reads the same job, payment, sandbox, study, Replay, artifact, and delivery records that run the workflow. Demo fixtures are marked `Demo` until a real adapter writes the event.
+
 ## Contract-first delivery plan
 
 PayBench uses one shared contract and two independent workstreams.

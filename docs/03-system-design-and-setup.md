@@ -45,6 +45,8 @@ Complete this section before Agent A or Agent B starts a workstream. Both agents
 ```text
 apps/
   web/                         # Next.js application
+    app/admin/runs/            # Internal operator dashboard
+    app/api/admin/runs/        # Read-only dashboard API and event stream
   worker/                      # Superserve worker
 packages/
   contracts/                   # Shared schemas, types, enums, and event names
@@ -291,8 +293,119 @@ type ReplayQaResult = WorkerCallback<{
 | `POST /api/studies/:id/events` | Agent B | Study page | Stores allow-listed behavior events |
 | `POST /api/studies/:id/decision` | Agent B | Study page | Stores one decision and the required survey |
 | `GET /r/:token` | Agent A | Founder | Shows one signed report |
+| `GET /api/admin/runs` | Dashboard | Operator | Lists founders and runs without sensitive identifiers |
+| `GET /api/admin/runs/:id` | Dashboard | Operator | Returns one canonical run snapshot |
+| `GET /api/admin/runs/:id/events` | Dashboard | Operator | Streams safe run events with server-sent events |
 
 Every mutation returns `{ ok, data?, error? }`. Errors use a stable `code` and safe `message`. No route returns a sponsor key, Supabase secret, raw public-link token, or page assignment label.
+
+### Internal dashboard contract
+
+The dashboard is a read model over canonical workflow records. It must not maintain a second job state machine.
+
+```ts
+type DashboardStageId =
+  | "intake"
+  | "payment"
+  | "capture"
+  | "variants"
+  | "study"
+  | "replay"
+  | "report"
+  | "delivery";
+
+type DashboardStageStatus =
+  | "waiting"
+  | "running"
+  | "blocked"
+  | "complete"
+  | "failed";
+
+type DashboardStage = {
+  id: DashboardStageId;
+  status: DashboardStageStatus;
+  actor: "paybench" | "stripe" | "superserve" | "terac" | "replay" | "linq";
+  label: string;
+  detail?: string;
+  started_at?: string;
+  completed_at?: string;
+};
+
+type SandboxLiveState = {
+  variant: "A" | "B";
+  sandbox_id: string;
+  status: "queued" | "booting" | "navigating" | "capturing" | "editing" | "validating" | "ready" | "paused" | "failed";
+  task: string;
+  viewer_url?: string;
+  preview_url?: string;
+  latest_frame_url?: string;
+  last_activity_at: string;
+};
+
+type ReplayLiveState = {
+  status: "queued" | "recording" | "checking" | "passed" | "failed";
+  current_journey?: string;
+  completed_checks: number;
+  total_checks: number;
+  blocking_findings: number;
+  run_url?: string;
+  last_activity_at?: string;
+};
+
+type DashboardRunSnapshot = {
+  contract_version: "1";
+  job_id: string;
+  founder_label: string;
+  website_url: string;
+  job_status: (typeof JobStatus)[number];
+  source: "live" | "demo";
+  paid: boolean;
+  amount_paid_cents: number;
+  currency: string;
+  current_stage: DashboardStageId;
+  blocker?: { code: string; label: string };
+  next_action?: string;
+  stages: DashboardStage[];
+  sandboxes: SandboxLiveState[];
+  study: {
+    target: number;
+    valid: number;
+    a_valid: number;
+    b_valid: number;
+    flagged: number;
+    rejected: number;
+    technical_failures: number;
+  };
+  replay: ReplayLiveState;
+  artifacts: Array<{
+    kind: "capture" | "spec" | "variant_a" | "variant_b" | "metrics" | "report";
+    label: string;
+    object_path: string;
+    created_at: string;
+  }>;
+  updated_at: string;
+};
+
+type DashboardRunEvent = {
+  event_id: string;
+  job_id: string;
+  stage: DashboardStageId;
+  status: DashboardStageStatus;
+  actor: DashboardStage["actor"];
+  summary: string;
+  occurred_at: string;
+};
+```
+
+Rules:
+
+1. Select one run by `job_id`; never infer identity from a URL or phone number.
+2. Derive stages from `jobs.status`, payments, `agent_runs`, study counts, Replay results, reports, and delivery records.
+3. Use server-sent events for live updates and a 15-second snapshot refresh as fallback.
+4. Keep event summaries allow-listed and under 120 characters.
+5. Expire all external viewer and artifact links. The API returns no permanent public object URL.
+6. Protect every `/admin/*` and `/api/admin/*` route with the operator access check.
+7. Mark fixtures `source: "demo"`. Never present fixture activity as a live sponsor run.
 
 ### Behavior event contract
 
@@ -421,6 +534,17 @@ The first split review found missing stage commands. Contract version `1` now in
 - **Fixture effect:** add one valid fixture for each new command and callback.
 - **Agent A effect:** send each stage command and match callbacks by `request_id`.
 - **Agent B effect:** accept each stage command and use a unique `callback_id` for every callback.
+
+### Contract change note 2
+
+The operator dashboard adds a read-only projection without changing workflow ownership.
+
+- **Schema effect:** export `DashboardRunSnapshot`, `DashboardRunEvent`, stage, sandbox, and Replay schemas from `packages/contracts`.
+- **Migration effect:** add append-only `job_transitions` and safe dashboard projection fields to `agent_runs`; do not duplicate `jobs.status`.
+- **Fixture effect:** add one paid live-shaped run, one blocked scout run, and one failed Replay run. Mark all fixtures `source: "demo"`.
+- **Agent A effect:** expose authenticated list, snapshot, and event-stream routes.
+- **Agent B effect:** publish safe sandbox, study, and Replay events through existing callbacks.
+- **Dashboard effect:** consume only the shared schemas and never write orchestration state.
 
 ## Supabase data model
 
@@ -586,6 +710,21 @@ Do not store a phone number in clear text unless the Linq integration requires i
 
 Use a unique constraint on `request_id`. Use a second unique constraint on non-null `callback_id`.
 
+### `job_transitions`
+
+- `id`
+- `job_id`
+- `from_status`
+- `to_status`
+- `stage`
+- `actor`
+- `reason_code`
+- `safe_summary`
+- `idempotency_key`
+- `occurred_at`
+
+Rows are append-only. `safe_summary` is allow-listed, contains no external payload, and is limited to 120 characters. The dashboard event stream reads this table plus safe `agent_runs` progress fields.
+
 ### `webhook_events`
 
 - `provider`
@@ -711,6 +850,9 @@ The Superserve API key stays in the PayBench backend. Credentials used inside a 
 | `POST /api/studies/:id/events` | Receive approved simulated-checkout events |
 | `GET /r/:token` | Show a signed, expiring report |
 | `GET /s/:token` | Open a signed participant test session |
+| `GET /api/admin/runs` | List dashboard-safe founder runs |
+| `GET /api/admin/runs/:id` | Read one canonical run snapshot |
+| `GET /api/admin/runs/:id/events` | Stream safe run events |
 
 All webhook routes use the raw body for signature verification. The worker callback uses `WORKER_CALLBACK_SECRET` and an idempotency key.
 
@@ -729,6 +871,7 @@ The updated `.env.example` is the source of truth. Required new infrastructure i
 | `ANTHROPIC_MODEL` | Now | `claude-sonnet-4-6` by default; current Claude models support image input |
 | `APP_SIGNING_SECRET` | Now | Generate locally as a random 32-byte value |
 | `WORKER_CALLBACK_SECRET` | Now | Generate locally as a separate random 32-byte value |
+| `DASHBOARD_ACCESS_KEY` | Now | Generate locally as a random operator-only value |
 
 Supabase now recommends `sb_publishable_...` and `sb_secret_...` keys. The secret key replaces the legacy `service_role` key for new projects. It must stay on the backend. See [Supabase API keys](https://supabase.com/docs/guides/getting-started/api-keys).
 
@@ -794,15 +937,16 @@ Use `REPLAY_QA_API_TOKEN` for the sponsor QA loop.
 6. Create the database tables and RLS policies.
 7. Create the Anthropic API key.
 8. Generate `APP_SIGNING_SECRET` and `WORKER_CALLBACK_SECRET`.
-9. Build the `paybench-browser` Superserve template.
-10. Build the Next.js intake, report, and webhook routes.
-11. Import the GitHub repository into Vercel and deploy PayBench to a public HTTPS URL.
-12. Create Stripe and Linq webhooks.
-13. Set the Replay target URL.
-14. Run one unpaid sandbox test.
-15. Run one real $20 purchase end to end.
-16. Launch the Terac study.
-17. Fix Replay findings and rerun QA.
+9. Generate `DASHBOARD_ACCESS_KEY` and protect the internal dashboard.
+10. Build the `paybench-browser` Superserve template.
+11. Build the Next.js intake, report, webhook, and dashboard routes.
+12. Import the GitHub repository into Vercel and deploy PayBench to a public HTTPS URL.
+13. Create Stripe and Linq webhooks.
+14. Set the Replay target URL.
+15. Run one unpaid sandbox test.
+16. Run one real $20 purchase end to end.
+17. Launch the Terac study.
+18. Fix Replay findings and rerun QA.
 
 ## Parallel implementation workstreams
 

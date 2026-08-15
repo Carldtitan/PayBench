@@ -324,6 +324,31 @@ The analysis joins event data and Terac responses by participant token. It calcu
 
 The report contains screenshots, the exact change, the evidence, limitations, and a recommendation. It never hides the sample size.
 
+## Operator dashboard evidence
+
+The experiment engine publishes compact, safe status events for the internal dashboard. It does not send logs or secrets to the browser.
+
+### Superserve surfaces
+
+After payment, the engine creates two isolated sandboxes from the same capture evidence:
+
+- **A — Control:** reproduces the submitted paywall without changing locked facts;
+- **B — Challenger:** applies the single approved `ChangePlan` while preserving price, product, billing, legal, and brand facts.
+
+Each sandbox reports `queued`, `booting`, `navigating`, `capturing`, `editing`, `validating`, `ready`, `paused`, or `failed`. It can publish a time-limited viewer URL, preview URL, current task label, latest safe frame, and last activity time. The dashboard embeds the viewer only when Superserve permits framing. Otherwise it shows the latest frame and an **Open sandbox** action.
+
+The dashboard never exposes a sandbox shell, secret binding, raw browser storage, or unrestricted URL navigation.
+
+### Replay surface
+
+Replay reports `queued`, `recording`, `checking`, `passed`, or `failed`, plus the current journey, completed checks, total checks, blocking finding count, last activity time, and time-limited run URL. The dashboard shows the live run link and findings as they arrive. It does not display recorded secrets, participant free text, or raw completion codes.
+
+### Study surface
+
+The study publishes recruitment counts without revealing which active participant received A or B. The operator sees target, valid, flagged, rejected, technical failures, and the balanced A/B totals after sessions complete. A failed page load is a technical failure, never a refusal.
+
+Every update includes `event_id`, `job_id`, `stage`, `status`, `occurred_at`, `actor`, and a safe summary. Repeated events use the same idempotency key.
+
 ## Workstream B — experiment engine
 
 Agent B implements the full experiment engine from the frozen shared contract at commit `53db49a`.
