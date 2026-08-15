@@ -9,6 +9,11 @@ import {
   deriveDashboardRunSnapshot,
   type DashboardRepository,
 } from "./repository";
+import {
+  SupabaseDashboardRepository,
+  SupabaseRestTransport,
+  type DashboardTableTransport,
+} from "./supabase-repository";
 
 export class DemoDashboardRepository implements DashboardRepository {
   private readonly snapshots = DEMO_CANONICAL_RUNS.map((records) =>
@@ -53,8 +58,39 @@ export class DemoDashboardRepository implements DashboardRepository {
 
 let repository: DashboardRepository | undefined;
 
-export function getDashboardRepository(): DashboardRepository {
-  repository ??= new DemoDashboardRepository();
-  return repository;
+export interface DashboardRepositoryEnvironment {
+  DASHBOARD_DATA_SOURCE?: string;
+  NEXT_PUBLIC_SUPABASE_URL?: string;
+  SUPABASE_SECRET_KEY?: string;
 }
 
+export function createDashboardRepository(
+  environment: DashboardRepositoryEnvironment = process.env as DashboardRepositoryEnvironment,
+  transport?: DashboardTableTransport,
+): DashboardRepository {
+  if (environment.DASHBOARD_DATA_SOURCE?.toLowerCase() === "demo") {
+    return new DemoDashboardRepository();
+  }
+
+  if (
+    environment.NEXT_PUBLIC_SUPABASE_URL &&
+    environment.SUPABASE_SECRET_KEY
+  ) {
+    return new SupabaseDashboardRepository(
+      transport ??
+        new SupabaseRestTransport(
+          environment.NEXT_PUBLIC_SUPABASE_URL,
+          environment.SUPABASE_SECRET_KEY,
+        ),
+    );
+  }
+
+  // The returned snapshots remain visibly marked Demo. This fallback keeps a
+  // new local checkout usable without pretending that sponsor systems are live.
+  return new DemoDashboardRepository();
+}
+
+export function getDashboardRepository(): DashboardRepository {
+  repository ??= createDashboardRepository();
+  return repository;
+}
