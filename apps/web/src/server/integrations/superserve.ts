@@ -41,6 +41,188 @@ export interface SuperserveStateSource {
   readViews(jobId: string): Promise<readonly SuperserveViewRecord[]>;
 }
 
+export type SuperserveLifecycleStatus =
+  | "active"
+  | "paused"
+  | "resuming"
+  | "failed";
+
+export type SuperserveActiveTaskStatus = Extract<
+  SandboxLiveState["status"],
+  "navigating" | "capturing" | "editing" | "validating" | "ready"
+>;
+
+export interface SuperserveSandboxInfo {
+  id: string;
+  status: SuperserveLifecycleStatus;
+  createdAt: Date;
+}
+
+export interface SuperserveSdkSandbox {
+  getInfo(): Promise<SuperserveSandboxInfo>;
+  publishPreviewPort(
+    port: number,
+    options: { access: "private" },
+  ): Promise<void>;
+  getSignedPreviewUrl(
+    port: number,
+    options: { expiresInSeconds: number },
+  ): Promise<string>;
+}
+
+export interface SuperserveSdkFactory {
+  connect(sandboxId: string): Promise<SuperserveSdkSandbox>;
+}
+
+export interface SuperserveSandboxViewBinding {
+  variant: SandboxLiveState["variant"];
+  sandbox_id: string;
+  task: string;
+  active_status: SuperserveActiveTaskStatus;
+  preview_port: number;
+  /** Set this only when an authenticated PayBench viewer service is running. */
+  viewer_port?: number;
+  /** An expiring, read-only artifact URL supplied by the artifact store. */
+  latest_frame?: ExpiringLink;
+}
+
+export const defaultSuperserveSdkFactory: SuperserveSdkFactory = {
+  async connect(sandboxId) {
+    // Keep the SDK behind the server-only adapter. The package is supplied by
+    // the web workspace, while tests inject a factory and make no network call.
+    const sdkPackageName: string = "@superserve/sdk";
+    const sdk = (await import(sdkPackageName)) as {
+      Sandbox?: { connect(id: string): Promise<SuperserveSdkSandbox> };
+    };
+
+    if (!sdk.Sandbox) {
+      throw new SponsorStatusError("SUPERSERVE_SDK_UNAVAILABLE");
+    }
+
+    return sdk.Sandbox.connect(sandboxId);
+  },
+};
+
+export function mapSuperserveLifecycleStatus(
+  lifecycle: SuperserveLifecycleStatus,
+  activeStatus: SuperserveActiveTaskStatus,
+): SandboxLiveState["status"] {
+  switch (lifecycle) {
+    case "active":
+      return activeStatus;
+    case "paused":
+      return "paused";
+    case "resuming":
+      return "booting";
+    case "failed":
+      return "failed";
+  }
+}
+
+function assertPreviewPort(port: number): void {
+  if (!Number.isInteger(port) || port < 1024 || port > 65_535 || port === 49_983) {
+    throw new SponsorStatusError("SUPERSERVE_PREVIEW_PORT_INVALID");
+  }
+}
+
+export class SuperserveSdkStateSource implements SuperserveStateSource {
+  constructor(
+    private readonly bindings: readonly [
+      SuperserveSandboxViewBinding,
+      SuperserveSandboxViewBinding,
+    ],
+    private readonly sdk: SuperserveSdkFactory = defaultSuperserveSdkFactory,
+    private readonly clock: Clock = () => new Date(),
+    private readonly linkExpirySeconds = 60,
+  ) {
+    if (
+      linkExpirySeconds < 1 ||
+      linkExpirySeconds > 300 ||
+      !Number.isInteger(linkExpirySeconds)
+    ) {
+      throw new SponsorStatusError("SUPERSERVE_LINK_EXPIRY_INVALID");
+    }
+
+    for (const binding of bindings) {
+      assertPreviewPort(binding.preview_port);
+      if (binding.viewer_port !== undefined) {
+        assertPreviewPort(binding.viewer_port);
+      }
+    }
+  }
+
+  async readViews(_jobId: string): Promise<readonly SuperserveViewRecord[]> {
+    return Promise.all(this.bindings.map((binding) => this.readView(binding)));
+  }
+
+  private async readView(
+    binding: SuperserveSandboxViewBinding,
+  ): Promise<SuperserveViewRecord> {
+    // connect() refreshes the data-plane token. Never expose that token.
+    const sandbox = await this.sdk.connect(binding.sandbox_id);
+    // getInfo() is required because sandbox.status is only a stale snapshot.
+    const info = await sandbox.getInfo();
+
+    if (info.id !== binding.sandbox_id) {
+      throw new SponsorStatusError("SUPERSERVE_SANDBOX_ID_MISMATCH");
+    }
+
+    const observed = this.clock();
+    const last_activity_at = observed.toISOString();
+    const status = mapSuperserveLifecycleStatus(
+      info.status,
+      binding.active_status,
+    );
+
+    if (info.status !== "active") {
+      return {
+        variant: binding.variant,
+        sandbox_id: binding.sandbox_id,
+        status,
+        task: binding.task,
+        latest_frame: binding.latest_frame,
+        last_activity_at,
+      };
+    }
+
+    const expires_at = new Date(
+      observed.getTime() + this.linkExpirySeconds * 1_000,
+    ).toISOString();
+
+    // Publishing with an explicit private policy is idempotent and prevents a
+    // previously public port from leaking an unsigned preview.
+    await sandbox.publishPreviewPort(binding.preview_port, { access: "private" });
+    const preview: ExpiringLink = {
+      url: await sandbox.getSignedPreviewUrl(binding.preview_port, {
+        expiresInSeconds: this.linkExpirySeconds,
+      }),
+      expires_at,
+    };
+
+    let viewer: ExpiringLink | undefined;
+    if (binding.viewer_port !== undefined) {
+      await sandbox.publishPreviewPort(binding.viewer_port, { access: "private" });
+      viewer = {
+        url: await sandbox.getSignedPreviewUrl(binding.viewer_port, {
+          expiresInSeconds: this.linkExpirySeconds,
+        }),
+        expires_at,
+      };
+    }
+
+    return {
+      variant: binding.variant,
+      sandbox_id: binding.sandbox_id,
+      status,
+      task: binding.task,
+      viewer,
+      preview,
+      latest_frame: binding.latest_frame,
+      last_activity_at,
+    };
+  }
+}
+
 export class SuperserveStatusAdapter
   implements SponsorStatusAdapter<SuperserveViews>
 {

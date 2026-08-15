@@ -3,9 +3,12 @@ import {
   LinqStatusAdapter,
   ReplayStatusAdapter,
   StripeStatusAdapter,
+  SuperserveSdkStateSource,
   SuperserveStatusAdapter,
   TeracStatusAdapter,
   createDemoSponsorStatusAdapters,
+  mapSuperserveLifecycleStatus,
+  type SuperserveSdkFactory,
 } from "../../apps/web/src/server/integrations";
 
 const JOB_ID = "63ca958e-3ad5-4f07-9f76-950da5587a1a";
@@ -84,6 +87,80 @@ describe("sponsor status adapters", () => {
     );
 
     await expect(adapter.read(JOB_ID)).rejects.toMatchObject({ code: "SUPERSERVE_REQUIRES_A_AND_B" });
+  });
+
+  it("reads fresh Superserve SDK state and mints only configured private links", async () => {
+    const calls: Array<string> = [];
+    const sdk: SuperserveSdkFactory = {
+      async connect(sandboxId) {
+        calls.push(`connect:${sandboxId}`);
+        return {
+          async getInfo() {
+            calls.push(`info:${sandboxId}`);
+            return { id: sandboxId, status: "active", createdAt: NOW };
+          },
+          async publishPreviewPort(port, options) {
+            calls.push(`publish:${sandboxId}:${port}:${options.access}`);
+          },
+          async getSignedPreviewUrl(port, options) {
+            calls.push(`sign:${sandboxId}:${port}:${options.expiresInSeconds}`);
+            return `https://preview.example.com/${sandboxId}/${port}?signed=1`;
+          },
+        };
+      },
+    };
+    const source = new SuperserveSdkStateSource(
+      [
+        { variant: "A", sandbox_id: "sandbox-a", task: "Capturing source", active_status: "capturing", preview_port: 3000 },
+        { variant: "B", sandbox_id: "sandbox-b", task: "Checking challenger", active_status: "validating", preview_port: 3001, viewer_port: 4001 },
+      ],
+      sdk,
+      clock,
+      60,
+    );
+    const result = await new SuperserveStatusAdapter(source, "live", clock).read(JOB_ID);
+
+    expect(result.state[0]).toMatchObject({ variant: "A", status: "capturing", preview_url: expect.stringContaining("signed=1") });
+    expect(result.state[0].viewer_url).toBeUndefined();
+    expect(result.state[1]).toMatchObject({ variant: "B", status: "validating", preview_url: expect.stringContaining("signed=1"), viewer_url: expect.stringContaining("signed=1") });
+    expect(calls).toContain("publish:sandbox-a:3000:private");
+    expect(calls).toContain("publish:sandbox-b:3001:private");
+    expect(calls).toContain("publish:sandbox-b:4001:private");
+    expect(calls).toContain("sign:sandbox-a:3000:60");
+    expect(calls.every((call) => !call.includes("shell") && !call.includes("token"))).toBe(true);
+  });
+
+  it("maps fresh lifecycle states without minting links for inactive sandboxes", async () => {
+    expect(mapSuperserveLifecycleStatus("active", "editing")).toBe("editing");
+    expect(mapSuperserveLifecycleStatus("paused", "editing")).toBe("paused");
+    expect(mapSuperserveLifecycleStatus("resuming", "editing")).toBe("booting");
+    expect(mapSuperserveLifecycleStatus("failed", "editing")).toBe("failed");
+
+    let signed = 0;
+    const sdk: SuperserveSdkFactory = {
+      async connect(sandboxId) {
+        return {
+          async getInfo() {
+            return { id: sandboxId, status: sandboxId.endsWith("a") ? "paused" : "resuming", createdAt: NOW };
+          },
+          async publishPreviewPort() { throw new Error("must not publish inactive sandbox"); },
+          async getSignedPreviewUrl() { signed += 1; return "https://example.com/unused"; },
+        };
+      },
+    };
+    const source = new SuperserveSdkStateSource(
+      [
+        { variant: "A", sandbox_id: "sandbox-a", task: "Paused", active_status: "ready", preview_port: 3000 },
+        { variant: "B", sandbox_id: "sandbox-b", task: "Resuming", active_status: "ready", preview_port: 3001 },
+      ],
+      sdk,
+      clock,
+    );
+    const result = await new SuperserveStatusAdapter(source, "live", clock).read(JOB_ID);
+
+    expect(result.state.map((view) => view.status)).toEqual(["paused", "booting"]);
+    expect(result.state.every((view) => view.preview_url === undefined)).toBe(true);
+    expect(signed).toBe(0);
   });
 
   it("returns Replay checks and removes an expired run URL", async () => {
