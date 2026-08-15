@@ -10,6 +10,7 @@ import {
   LinqV3HttpTransport,
   type LinqOutboundTransport,
 } from "../../apps/web/src/server/control/linq-outbound";
+import { deliverReportToHealthyLinqChat } from "../../apps/web/src/server/control/linq-report";
 import { MemoryControlRepository } from "../../apps/web/src/server/control/memory-repository";
 
 const secretBytes = randomBytes(32);
@@ -204,5 +205,46 @@ describe("Linq outbound dispatcher", () => {
     );
     await transport.send({ to: "+14155551234", message: "Hello" });
     expect(urls).toEqual(["https://api.linqapp.com/api/partner/v3/messages"]);
+  });
+});
+
+describe("Linq final report delivery", () => {
+  function client(chatHealth: "HEALTHY" | "AT_RISK" = "HEALTHY", lineHealth: "HEALTHY" | "CRITICAL" = "HEALTHY") {
+    const sends: string[] = [];
+    return {
+      sends,
+      value: {
+        chats: {
+          retrieve: async () => ({ health_status: { status: chatHealth }, handles: [{ handle: "+14155550199", is_me: true }] }),
+          messages: {
+            send: async (_chatId: string, body: { message: { parts: Array<{ value: string }> } }) => {
+              sends.push(body.message.parts[0]!.value);
+              return { message: { id: "message_report" } };
+            },
+          },
+        },
+        phoneNumbers: {
+          list: async () => ({ phone_numbers: [{ phone_number: "+14155550199", reputation: { status: lineHealth } }] }),
+        },
+      },
+    };
+  }
+
+  it("sends one report into the existing healthy inbound chat", async () => {
+    const fake = client();
+    await expect(deliverReportToHealthyLinqChat("chat_demo", "https://paybench.example/report/token", fake.value)).resolves.toEqual({
+      status: "sent",
+      provider_message_id: "message_report",
+    });
+    expect(fake.sends).toEqual(["Your PayBench report is ready: https://paybench.example/report/token"]);
+  });
+
+  it("blocks report delivery before transport when chat or line is unhealthy", async () => {
+    const chatRisk = client("AT_RISK");
+    const lineRisk = client("HEALTHY", "CRITICAL");
+    await expect(deliverReportToHealthyLinqChat("chat_demo", "https://paybench.example/report/token", chatRisk.value)).resolves.toEqual({ status: "blocked", reason: "CHAT_AT_RISK" });
+    await expect(deliverReportToHealthyLinqChat("chat_demo", "https://paybench.example/report/token", lineRisk.value)).resolves.toEqual({ status: "blocked", reason: "LINE_CRITICAL" });
+    expect(chatRisk.sends).toHaveLength(0);
+    expect(lineRisk.sends).toHaveLength(0);
   });
 });

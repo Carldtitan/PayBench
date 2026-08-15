@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { buildPaywallVariants, PaywallValidationError } from "../../../../../../packages/paywall/src";
+import { runPaidJob } from "../../../../src/server/orchestration/paid-job";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,14 @@ export async function POST(request: Request): Promise<Response> {
     if (raw.length > 1_000_000) {
       return Response.json({ ok: false, error: { code: "PAYLOAD_TOO_LARGE", message: "Engine payload is too large" } }, { status: 413 });
     }
-    const body = JSON.parse(raw) as { action?: unknown; spec?: unknown; change_plan?: unknown };
+    const body = JSON.parse(raw) as { action?: unknown; job_id?: unknown; spec?: unknown; change_plan?: unknown };
+    if (body.action === "run_paid_job") {
+      if (typeof body.job_id !== "string") {
+        return Response.json({ ok: false, error: { code: "JOB_ID_REQUIRED", message: "A job ID is required" } }, { status: 400 });
+      }
+      const result = await runPaidJob(body.job_id);
+      return Response.json({ ok: true, data: result }, { headers: { "Cache-Control": "private, no-store" } });
+    }
     if (body.action !== "build_variants") {
       return Response.json({ ok: false, error: { code: "ACTION_INVALID", message: "Unknown engine action" } }, { status: 400 });
     }

@@ -1,6 +1,8 @@
+import { after } from "next/server";
 import { getControlRepository } from "../../../../src/server/control/supabase-repository";
 import { handleStripeWebhook } from "../../../../src/server/control/stripe";
 import { ControlError } from "../../../../src/server/control/types";
+import { runPaidJob } from "../../../../src/server/orchestration/paid-job";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,6 +15,12 @@ export async function POST(request: Request): Promise<Response> {
       request.headers.get("stripe-signature"),
       await getControlRepository(),
     );
+    if (result.action === "capture_queued" && result.job_id) {
+      const jobId = result.job_id;
+      after(async () => {
+        await runPaidJob(jobId);
+      });
+    }
     return Response.json({ received: true, duplicate: result.duplicate, action: result.action });
   } catch (error) {
     const status = error instanceof ControlError ? error.status : 500;
@@ -20,4 +28,3 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ received: false, error: { code } }, { status });
   }
 }
-

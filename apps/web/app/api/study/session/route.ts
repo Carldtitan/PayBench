@@ -20,7 +20,8 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const body = (await request.json()) as { token?: unknown; teracSubmissionId?: unknown };
     if (typeof body.token !== "string") throw new StudyError("STUDY_NOT_FOUND", 404);
-    const result = getStudyRepository().claimSession({
+    const repository = await getStudyRepository();
+    const result = await repository.claimSession({
       token: body.token,
       cookie_value: readCookie(request, PARTICIPANT_COOKIE),
       terac_submission_id: typeof body.teracSubmissionId === "string" ? body.teracSubmissionId : undefined,

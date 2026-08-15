@@ -77,6 +77,7 @@ function checkoutSession(event: StripeEvent): {
 export interface StripeWebhookResult {
   duplicate: boolean;
   action: "capture_queued" | "awaiting_async_payment" | "payment_failed" | "ignored";
+  job_id?: string;
 }
 
 export async function handleStripeWebhook(
@@ -120,12 +121,12 @@ export async function handleStripeWebhook(
       if (session.paymentStatus !== "unpaid") throw new ControlError("STRIPE_PAYMENT_STATUS_MISMATCH", 400);
       await repository.markPaymentFailed(session.jobId);
       await repository.finishWebhook("stripe", event.id, "processed");
-      return { duplicate: false, action: "payment_failed" };
+      return { duplicate: false, action: "payment_failed", job_id: session.jobId };
     }
 
     if (event.type === "checkout.session.completed" && session.paymentStatus === "unpaid") {
       await repository.finishWebhook("stripe", event.id, "processed");
-      return { duplicate: false, action: "awaiting_async_payment" };
+      return { duplicate: false, action: "awaiting_async_payment", job_id: session.jobId };
     }
     if (session.paymentStatus !== "paid") throw new ControlError("STRIPE_PAYMENT_STATUS_MISMATCH", 400);
 
@@ -139,6 +140,7 @@ export async function handleStripeWebhook(
     return {
       duplicate: false,
       action: fulfillment.capture_enqueued ? "capture_queued" : "ignored",
+      job_id: session.jobId,
     };
   } catch (error) {
     await repository.finishWebhook("stripe", event.id, "failed");

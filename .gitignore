@@ -19,3 +19,5 @@ coverage/
 # Local browser-review artifacts
 .playwright-cli/
 output/
+
+.vercel

@@ -358,7 +358,8 @@ export class MockStudyRepository {
     };
   }
 
-  approve(kind: OperatorApproval["kind"], artifactHash: string): OperatorStudyStatus {
+  approve(kind: OperatorApproval["kind"], artifactHash: string, jobId = DEMO_JOB_ID): OperatorStudyStatus {
+    if (jobId !== DEMO_JOB_ID) throw new StudyError("RUN_NOT_FOUND", 404);
     if (!this.safeEqual(artifactHash, DEMO_ARTIFACT_HASH)) {
       throw new StudyError("APPROVAL_ARTIFACT_MISMATCH", 409);
     }
@@ -377,7 +378,8 @@ export class MockStudyRepository {
     return this.dashboardStatus();
   }
 
-  unlockMain(): OperatorStudyStatus {
+  unlockMain(jobId = DEMO_JOB_ID): OperatorStudyStatus {
+    if (jobId !== DEMO_JOB_ID) throw new StudyError("RUN_NOT_FOUND", 404);
     if (!this.record.gate.open) throw new StudyError("GATE_CLOSED", 423);
     if (this.completedCount("pilot") !== PILOT_PARTICIPANTS) {
       throw new StudyError("PILOT_INCOMPLETE", 423);
@@ -394,7 +396,13 @@ export class MockStudyRepository {
     }).length;
   }
 
-  dashboardStatus(baseUrl = "http://localhost:3000"): OperatorStudyStatus {
+  dashboardStatus(jobIdOrBaseUrl = DEMO_JOB_ID, explicitBaseUrl?: string): OperatorStudyStatus {
+    const isBaseUrl = /^https?:\/\//.test(jobIdOrBaseUrl);
+    const jobId = isBaseUrl ? DEMO_JOB_ID : jobIdOrBaseUrl;
+    const baseUrl = isBaseUrl
+      ? jobIdOrBaseUrl
+      : explicitBaseUrl ?? process.env.APP_BASE_URL ?? "http://localhost:3000";
+    if (jobId !== DEMO_JOB_ID) throw new StudyError("RUN_NOT_FOUND", 404);
     const pilotCompleted = this.completedCount("pilot");
     const mainCompleted = this.completedCount("main");
     const completed = this.record.slots.filter((slot) => {
@@ -464,9 +472,16 @@ declare global {
   var __paybenchStudyRepository: MockStudyRepository | undefined;
 }
 
-export function getStudyRepository(): MockStudyRepository {
-  globalThis.__paybenchStudyRepository ??= new MockStudyRepository();
-  return globalThis.__paybenchStudyRepository;
+export async function getStudyRepository() {
+  if (
+    process.env.STUDY_DATA_SOURCE === "mock" ||
+    !process.env.NEXT_PUBLIC_SUPABASE_URL
+  ) {
+    globalThis.__paybenchStudyRepository ??= new MockStudyRepository();
+    return globalThis.__paybenchStudyRepository;
+  }
+  const { getSupabaseStudyRepository } = await import("./supabase-repository");
+  return getSupabaseStudyRepository();
 }
 
 export function participantCookieHeader(value: string): string {

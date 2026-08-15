@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import Linq from "@linqapp/sdk";
 
 import type { HostResolver } from "./url";
 import { validatePublicWebsiteUrl, validateTargetCustomerDescription } from "./url";
@@ -33,10 +34,26 @@ export function verifyLinqWebhook(
   rawBody: string,
   headers: LinqWebhookHeaders,
   secret: string | undefined,
-  nowSeconds = Math.floor(Date.now() / 1000),
+  nowSeconds?: number,
 ): void {
   if (!secret || !headers.id || !headers.timestamp || !headers.signature) {
     throw new ControlError("LINQ_SIGNATURE_MISSING", 400);
+  }
+  if (nowSeconds === undefined) {
+    try {
+      const client = new Linq({ apiKey: process.env.LINQ_API_V3_API_KEY ?? "webhook-verifier" });
+      client.webhooks.unwrap(rawBody, {
+        headers: {
+          "webhook-id": headers.id,
+          "webhook-timestamp": headers.timestamp,
+          "webhook-signature": headers.signature,
+        },
+        key: secret,
+      });
+      return;
+    } catch {
+      throw new ControlError("LINQ_SIGNATURE_INVALID", 400);
+    }
   }
   const timestamp = Number(headers.timestamp);
   if (!Number.isInteger(timestamp) || Math.abs(nowSeconds - timestamp) > 300) {

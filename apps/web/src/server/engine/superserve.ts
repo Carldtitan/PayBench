@@ -2,6 +2,8 @@ import "./server-only";
 
 import type { PaywallSpec, SandboxLiveState } from "@paybench/contracts";
 import { validatePaywallSpec } from "../../../../../packages/paywall/src";
+import { createCaptureEvidencePlan } from "./capture";
+import type { CapturedPageEvidence } from "./anthropic";
 
 const WORKDIR = "/workspace/paybench";
 const PREVIEW_PORT = 4173;
@@ -41,7 +43,10 @@ export interface SuperserveCommandSession {
 
 export interface SuperserveSandboxInstance {
   readonly id: string;
-  files: { write(path: string, content: string): Promise<void> };
+  files: {
+    write(path: string, content: string): Promise<void>;
+    readText?(path: string): Promise<string>;
+  };
   commands: {
     spawn(command: string, options?: { cwd?: string }): Promise<SuperserveCommandSession>;
     run(command: string, options?: { cwd?: string; timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
@@ -52,6 +57,48 @@ export interface SuperserveSandboxInstance {
   pause(): Promise<void>;
   kill(): Promise<void>;
 }
+
+const CAPTURE_SCRIPT = String.raw`
+import hashlib, html, json, os, re, shutil, subprocess, sys
+from html.parser import HTMLParser
+
+class Text(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+    def handle_data(self, data):
+        value = " ".join(data.split())
+        if value:
+            self.parts.append(value)
+
+source = open("/workspace/paybench/source-url.txt", "r", encoding="utf-8").read().strip()
+browser = next((shutil.which(name) for name in ["google-chrome", "chromium", "chromium-browser"] if shutil.which(name)), None)
+if not browser:
+    print("SUPERSERVE_BROWSER_UNAVAILABLE", file=sys.stderr)
+    sys.exit(17)
+
+common = [browser, "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--hide-scrollbars"]
+desktop = "/workspace/paybench/desktop.png"
+mobile = "/workspace/paybench/mobile.png"
+subprocess.run(common + ["--window-size=1440,960", "--screenshot=" + desktop, source], check=True, timeout=30)
+subprocess.run(common + ["--window-size=390,844", "--screenshot=" + mobile, source], check=True, timeout=30)
+dom = subprocess.run(common + ["--dump-dom", source], check=True, capture_output=True, text=True, timeout=30).stdout
+parser = Text()
+parser.feed(dom)
+visible = "\n".join(parser.parts)
+colors = list(dict.fromkeys(re.findall(r"#[0-9a-fA-F]{6}", dom)))[:24]
+title_match = re.search(r"<title[^>]*>(.*?)</title>", dom, re.I | re.S)
+result = {
+  "source_url": source,
+  "source_hash": hashlib.sha256(dom.encode("utf-8")).hexdigest(),
+  "desktop_screenshot_path": desktop,
+  "mobile_screenshot_path": mobile,
+  "reduced_dom": dom[:200000],
+  "visible_text": visible[:100000],
+  "brand_tokens": {"title": html.unescape(title_match.group(1).strip()) if title_match else "", "colors": colors},
+}
+open("/workspace/paybench/capture.json", "w", encoding="utf-8").write(json.dumps(result))
+`;
 
 export interface SuperserveSandboxFactory {
   create(options: {
@@ -70,6 +117,61 @@ export const defaultSuperserveSandboxFactory: SuperserveSandboxFactory = {
     return Sandbox.create(options) as unknown as SuperserveSandboxInstance;
   },
 };
+
+export interface SuperserveCapturedEvidence extends CapturedPageEvidence {
+  sandbox_id: string;
+}
+
+export class SuperserveCaptureAdapter {
+  constructor(
+    private readonly factory: SuperserveSandboxFactory = defaultSuperserveSandboxFactory,
+  ) {}
+
+  async capture(jobId: string, sourceUrl: string): Promise<SuperserveCapturedEvidence> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+      throw new Error("JOB_ID_INVALID");
+    }
+    const plan = await createCaptureEvidencePlan(sourceUrl);
+    const hostname = new URL(plan.sourceUrl).hostname;
+    const sandbox = await this.factory.create({
+      name: `paybench-${jobId.slice(0, 8)}-capture`,
+      timeoutSeconds: 1_800,
+      autoDeleteSeconds: 86_400,
+      previewAccess: "private",
+      metadata: {
+        app: "paybench",
+        job_id: jobId,
+        purpose: "source-capture",
+        visibility: "operator-only",
+      },
+      network: {
+        allowOut: [hostname, `*.${hostname}`, "superserve.ai", "*.superserve.ai"],
+        denyOut: ["0.0.0.0/0"],
+      },
+    });
+    try {
+      await sandbox.files.write(`${WORKDIR}/source-url.txt`, plan.sourceUrl);
+      await sandbox.files.write(`${WORKDIR}/capture.py`, CAPTURE_SCRIPT);
+      const result = await sandbox.commands.run(`python3 ${WORKDIR}/capture.py`, {
+        cwd: WORKDIR,
+        timeoutMs: 90_000,
+      });
+      if (result.exitCode !== 0) {
+        throw new Error(result.stderr.includes("SUPERSERVE_BROWSER_UNAVAILABLE")
+          ? "SUPERSERVE_BROWSER_UNAVAILABLE"
+          : "SUPERSERVE_CAPTURE_FAILED");
+      }
+      if (!sandbox.files.readText) throw new Error("SUPERSERVE_FILE_READ_UNAVAILABLE");
+      const evidence = JSON.parse(await sandbox.files.readText(`${WORKDIR}/capture.json`)) as CapturedPageEvidence;
+      if (!/^[a-f0-9]{64}$/.test(evidence.source_hash)) throw new Error("SUPERSERVE_CAPTURE_INVALID");
+      await sandbox.pause();
+      return { ...evidence, sandbox_id: sandbox.id };
+    } catch (error) {
+      await sandbox.kill();
+      throw error;
+    }
+  }
+}
 
 export interface OpenWorkSurfacesRequest {
   jobId: string;

@@ -22,7 +22,8 @@ export async function POST(request: Request): Promise<Response> {
     if (typeof body.event !== "string" || !ALLOWED_EVENTS.has(body.event as StudyEventName)) {
       throw new StudyError("EVENT_INVALID", 400);
     }
-    getStudyRepository().recordEvent(
+    const repository = await getStudyRepository();
+    await repository.recordEvent(
       readCookie(request, PARTICIPANT_COOKIE),
       body.event as StudyEventName,
     );

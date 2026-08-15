@@ -12,7 +12,8 @@ export async function POST(request: Request): Promise<Response> {
     if (body.decision !== "complete_simulated_purchase" && body.decision !== "stop") {
       throw new StudyError("DECISION_INVALID", 400);
     }
-    const completion = getStudyRepository().completeDecision(
+    const repository = await getStudyRepository();
+    const completion = await repository.completeDecision(
       readCookie(request, PARTICIPANT_COOKIE),
       body,
     );

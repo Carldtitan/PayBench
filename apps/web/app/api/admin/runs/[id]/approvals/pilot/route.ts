@@ -9,10 +9,9 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   const unauthorized = await requireDashboardAccess(request);
   if (unauthorized) return unauthorized;
   const { id } = await context.params;
-  const repository = getStudyRepository();
-  if (repository.dashboardStatus().job_id !== id) return jsonError(404, "RUN_NOT_FOUND", "Run not found");
+  const repository = await getStudyRepository();
   try {
-    return jsonOk(repository.unlockMain());
+    return jsonOk(await repository.unlockMain(id));
   } catch (error) {
     const studyError = error instanceof StudyError ? error : new StudyError("PILOT_UNLOCK_FAILED", 503);
     return jsonError(studyError.status, studyError.code, "Pilot review is not ready");

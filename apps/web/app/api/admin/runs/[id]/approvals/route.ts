@@ -18,11 +18,11 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   const unauthorized = await requireDashboardAccess(request);
   if (unauthorized) return unauthorized;
   const { id } = await context.params;
-  const repository = getStudyRepository();
+  const repository = await getStudyRepository();
   try {
     const baseUrl = process.env.APP_BASE_URL ?? new URL(request.url).origin;
-    const status = repository.dashboardStatus(baseUrl);
-    return status.job_id === id ? jsonOk(status) : jsonError(404, "RUN_NOT_FOUND", "Run not found");
+    const status = await repository.dashboardStatus(id, baseUrl);
+    return jsonOk(status);
   } catch (error) {
     const code = error instanceof StudyError ? error.code : "STUDY_STATUS_UNAVAILABLE";
     return jsonError(503, code, "Study status unavailable");
