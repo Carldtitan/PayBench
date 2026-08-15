@@ -1,5 +1,5 @@
-import { OperatorLogin } from "../components/operator-login";
+import { FounderIntake } from "../components/founder-intake";
 
 export default function HomePage() {
-  return <OperatorLogin />;
+  return <FounderIntake />;
 }
