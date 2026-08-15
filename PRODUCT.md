@@ -38,7 +38,11 @@ The operator uses the dashboard during a time-sensitive hackathon. One selected 
 - Results are directional and never claim statistical significance from the small sample.
 - The dashboard is internal-only and must not expose sponsor secrets, participant codes, phone numbers, payment data, or survey free text.
 - The MVP uses two Superserve sandbox views: A reproduces the source paywall and B applies one controlled change.
-- Replay QA starts after the measured study and checks both generated pages before delivery.
+- Replay QA runs before recruitment. A missing run, failure, or blocking finding keeps the study locked.
+- The study is fixed at 10 screened target customers: five see A and five see B. Two pilot places open first, one per page.
+- Approved participants receive $5 each: $50 before Terac's platform fee. The operator approves the quote and confirms sponsor-credit funding.
+- Results use directional signals only. PayBench never presents the 10-person result as statistically significant.
+- Terac stays in mock mode during development. PayBench has no route that creates, publishes, uploads, or launches an opportunity.
 - Render and Pioneer are outside the product.
 
 ## Brand Commitments

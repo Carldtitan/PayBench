@@ -1,5 +1,21 @@
 # PayBench system design and setup
 
+> Contract v2 is frozen for this build. It supersedes every contract-v1 command, sample-size, workflow-order, completion-code, or live-Terac statement below.
+
+## Shared implementation contract v2
+
+- Constants: 10 participants, five A, five B, $5 per approved participant, $50 before platform fees, about 10 minutes, directional evidence only.
+- Audience: every job requires `TargetCustomerSpec` and operator-approved `TeracScreeningSpec`. `general_population` is invalid.
+- Page artifacts: `PaywallSpec`, `LockedFacts`, `PaywallNode`, and a one-operation `ChangePlan` are strict JSON schemas in `packages/contracts`.
+- Workflow: `intake -> payment -> capture -> variants -> QA/Replay -> approvals -> pilot -> study -> report -> delivery`.
+- Command: `StudyDraftRequest` creates local data and copy only. It cannot invoke Terac.
+- Gate: source match, one B change, locked facts, desktop/mobile, both decisions, validation, survey, assignment persistence, mock redirect, Replay presence, zero blockers, page approval, quote approval, $20 payment, and sponsor-credit funding must all pass.
+- Assignment: one opaque PayBench link claims a saved slot before render. Pilot has one A and one B; main has four A and four B. Refresh uses an HttpOnly session cookie.
+- Completion: encrypted `teracSubmissionId` plus browser redirect is primary. A one-use `PB-` code is fallback only.
+- Results: `a_stronger_signal`, `b_stronger_signal`, `no_clear_signal`, or `insufficient_evidence`.
+- Safety: `TERAC_MODE=mock` and `TERAC_LIVE_DISABLED=true`. There is no Terac creation, publishing, upload, or launch API in this repository.
+- Infrastructure: migration `202608150002_study_contract_v2.sql` adds quotes, hash-bound approvals, private work surfaces, QA gates, opaque study tokens, fixed slots, secure submission fields, and directional-report constraints.
+
 ## Architecture decision
 
 PayBench uses five runtime parts.
@@ -215,10 +231,10 @@ type VariantBuildResult = WorkerCallback<{
 
 The manifest locks the source facts, hypothesis, component operations, artifact checksums, and renderer version.
 
-#### `StudyStartRequest`
+#### `StudyDraftRequest` (contract v2 replacement)
 
 ```ts
-type StudyStartRequest = WorkerCommand<{
+type StudyDraftRequest = WorkerCommand<{
   manifest_path: string;
   study_url: string;
   target_participants: number;
@@ -251,7 +267,7 @@ type StudyResult = WorkerCallback<{
   valid_b: number;
   technical_failures: number;
   primary_metric: "simulated_purchase_decision_rate";
-  result: "A" | "B" | "no_clear_winner";
+  result: "a_stronger_signal" | "b_stronger_signal" | "no_clear_signal" | "insufficient_evidence";
   metrics_path: string;
   report_input_path: string;
   error_code?: string;
@@ -481,10 +497,10 @@ The transition service records the old state, new state, actor, reason, and time
 | `CaptureJobResult: needs_scout` | Move `capturing -> needs_scout` and wait for `ScoutEvidenceAccepted` |
 | `ScoutEvidenceAccepted` | Move `needs_scout -> capturing` and send a scout-backed `CaptureJobRequest` |
 | `CaptureJobResult: spec_ready` | Move `capturing -> spec_ready -> building_variants` and send `VariantBuildRequest` |
-| `VariantBuildResult: variants_ready` | Move `building_variants -> quality_check -> recruiting` and send `StudyStartRequest` |
+| `VariantBuildResult: variants_ready` | Move `building_variants -> quality_check -> qa_replay`; recruit only after every gate and approval passes |
 | `StudyStarted: started` | Move `recruiting -> testing` |
 | `StudyResult: complete` | Move `testing -> analyzing -> replay_qa` and send `ReplayQaRequest` |
-| `StudyResult: insufficient_sample` | Follow the same report path and force `no_clear_winner` |
+| `StudyResult: insufficient_evidence` | Follow the same report path and keep the conclusion directional |
 | `ReplayQaResult: passed` | Move `replay_qa -> report_ready` |
 | Any terminal `failed` result | Move the current job to `failed` with its stable error code |
 
@@ -527,7 +543,7 @@ After this point, a contract change needs one written change note. The note list
 
 ### Contract change note 1
 
-The first split review found missing stage commands. Contract version `1` now includes `VariantBuildRequest`, `StudyStartRequest`, `ReplayQaRequest`, `ScoutEvidenceAccepted`, `StudyStarted`, and `ReplayQaResult`.
+The first split review found missing stage commands. Contract version `2` keeps typed capture and variant commands, replaces `StudyStartRequest` with non-networking `StudyDraftRequest`, and moves Replay before approvals and recruitment.
 
 - **Schema effect:** add the new Zod command and callback schemas. Add `request_id`, `callback_id`, `command_type`, and `result_type` to their envelopes.
 - **Migration effect:** no new product table is required. Store command requests and callbacks in `agent_runs` and `webhook_events`.
@@ -999,7 +1015,7 @@ Agent A imports `packages/contracts` and `packages/db`. Agent A does not change 
 - one idempotent paid state;
 - one `CaptureJobRequest`;
 - one `VariantBuildRequest`;
-- one `StudyStartRequest`;
+- one `StudyDraftRequest` that writes local slots and draft copy only;
 - one `ReplayQaRequest`;
 - accepted signed worker results;
 - one final signed report URL;
@@ -1043,9 +1059,9 @@ Both implementations accept every shared `WorkerCommand`. The application select
 15. Verify worker callback HMAC, timestamp, payload schema, and idempotency key.
 16. Apply each valid result to the job state without repeating side effects.
 17. Send `VariantBuildRequest` after a valid `spec_ready` result.
-18. Send `StudyStartRequest` after valid variants pass quality gates.
-19. Send `ReplayQaRequest` after a complete or insufficient study result.
-20. Read `report-input-v1.json` only after Replay QA passes.
+18. Send `ReplayQaRequest` after valid variants pass deterministic checks.
+19. Send `StudyDraftRequest` only after Replay passes and both hash-bound approvals exist.
+20. Read `report-input-v2.json` only after the pilot and main study finish.
 21. Render the final report without changing metrics.
 22. Create a signed, expiring `/r/:token` report link.
 23. Deliver the report through Linq once.
@@ -1109,7 +1125,7 @@ Start final integration only after both workstreams pass their independent defin
 9. Run Replay against the integrated app and both generated pages.
 10. Fix all blocking findings and rerun the complete fixture journey.
 11. After Stripe enables live payments, run one real $20 founder purchase.
-12. Launch the real Terac study only after the fixture journey passes.
+12. Keep Terac in mock mode. A real Terac study is explicitly outside this coding task.
 
 No workstream can claim that PayBench is complete by itself. Product completion requires the real Agent A adapter, the real Agent B adapter, one paid founder journey, valid Terac evidence, and final Linq delivery.
 

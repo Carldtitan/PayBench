@@ -1,5 +1,20 @@
 # Paywall capture and generation engine
 
+> Contract v2 is frozen for this build. It supersedes older sample, ordering, completion, Superserve-delivery, and Terac-launch wording below.
+
+## Contract v2 execution boundary
+
+1. Superserve captures the public source with SSRF protection, bounded redirects, desktop/mobile screenshots, reduced DOM, visible text, and computed brand tokens.
+2. Anthropic returns strict JSON for `PaywallSpec`. It cannot return HTML, JSX, CSS, JavaScript, scripts, handlers, forms, or trackers.
+3. The registry renders A from known React components: shell, header, offer, selector, benefits, trust, checkout, summary, action, legal footer, and simulation notice.
+4. Anthropic returns one `ChangePlan` operation. B deep-clones the same IDs and locked facts, then applies only that operation.
+5. Price, billing terms, legal text, product details, trials, guarantees, and claims remain locked. A changed locked-fact hash rejects B.
+6. Superserve previews are private and operator-only. Participants receive only `https://YOUR_PAYBENCH_DOMAIN/s/<opaque-study-token>`.
+7. Replay runs before recruitment and exercises A/B on desktop/mobile, continue, stop, validation, survey, refresh persistence, and mocked redirect.
+8. `StudyDraftRequest` prepares the ten local slots and neutral copy. It performs no Terac network call.
+9. `TERAC_MODE=mock` plus `TERAC_LIVE_DISABLED=true` is enforced at transport level. No create, publish, upload, or launch method exists.
+10. Pilot slots are one A and one B. Main slots are four A and four B. All assignments are persisted and shuffled before the link opens.
+
 ## Core rule
 
 The model does not generate a paywall from a screenshot and a loose prompt.
@@ -264,9 +279,9 @@ If control A fails fidelity, the job returns to capture. If challenger B fails, 
 
 The worker starts the variant app on one Superserve port. It publishes that port with private preview access.
 
-PayBench creates one short-lived signed study URL for the Terac job. It stores the sandbox ID in Supabase, so another process can reconnect after a pause.
+PayBench creates one short-lived opaque study URL on the deployed PayBench application. Superserve sandbox IDs remain server-only so the operator can reconnect after a pause.
 
-Terac receives one neutral study URL. When an end-user first opens it, PayBench creates an opaque participant session and assigns exactly one page. Assignment uses shuffled blocks of four with two A and two B positions in random order. The database saves the assignment before rendering. A refresh returns the same page.
+Terac receives one neutral study URL. On first open, PayBench atomically claims one persisted slot from the active pilot or main cohort and creates the session before rendering. The fixed list contains five A and five B slots. A secure HttpOnly cookie preserves assignment after refresh.
 
 The URL contains only an opaque `study_token`. The participant session uses a secure, HTTP-only cookie. Neither value contains a phone number, email address, page label, or secret.
 
@@ -290,7 +305,7 @@ After either decision, the same page asks:
 5. How trustworthy did the page feel, from 1 to 5?
 6. Would you continue if this used real money? Why or why not?
 
-After all required questions are answered, the server creates a one-use `PB-` completion code. The end-user pastes that code into Terac. The code links the Terac submission to the server-side session without exposing which page was assigned or which decision was made.
+After all required questions are answered, the server uses the encrypted `teracSubmissionId` for a browser redirect. In mock mode, the destination is PayBench's internal mock callback. A one-use `PB-` code appears only when the submission ID or redirect is unavailable.
 
 The telemetry endpoint accepts only approved event names. It rate-limits each participant token and rejects events after completion.
 
@@ -396,7 +411,7 @@ The worker validates all inputs and outputs with Zod schemas from `packages/cont
 | `CaptureJobRequest` | Capture automatically or rebuild with accepted scout evidence | `CaptureJobResult`, including `needs_scout` when required |
 | Accepted scout submission | Validate and store the evidence | `ScoutEvidenceAccepted` after evidence arrives |
 | `VariantBuildRequest` | Build and check A and B | `VariantBuildResult` |
-| `StudyStartRequest` | Create the blinded Terac study | `StudyStarted`, then one terminal `StudyResult` |
+| `StudyDraftRequest` | Prepare local slots and copy without a Terac network call | `StudyDrafted` |
 | `ReplayQaRequest` | Test both pages and the report input | `ReplayQaResult` |
 
 Every command uses `WorkerCommand` with `contract_version: "1"`, a unique `request_id`, `job_id`, `command_type`, `callback_url`, and typed payload.
@@ -570,13 +585,13 @@ Checkpoint: valid pages pass. Changed-price, external-script, inaccessible, and 
 
 #### 7. Start the blinded Terac study
 
-Validate `StudyStartRequest`, the manifest checksum, both preview checks, sample limits, simulated budget, balanced assignment, and primary metric.
+Validate `StudyDraftRequest`, the manifest checksum, both private previews, fixed 10-person economics, targeted screening, the persisted five/five assignment deck, and primary metric.
 
 Create one Terac task with the exact neutral copy in [01-product.md](./01-product.md#terac-job-2-blinded-end-user-purchase-task). Replace every placeholder. Open the link once in a private browser before recruitment.
 
 The job text must not contain `A/B`, `control`, `challenger`, `variant`, `experiment`, or `comparison`.
 
-Send `StudyStarted: started` after the study row and Terac task exist. A repeated request must not create another Terac task.
+Send `StudyDrafted` after the study row, ten local slots, screening rules, and neutral copy exist. No request can create or launch a Terac task.
 
 #### 8. Assign one page per end-user
 
@@ -585,7 +600,7 @@ Implement `GET /s/:token`.
 1. Validate the signed opaque token and expiry.
 2. Reuse the secure session cookie when present.
 3. Otherwise, open a serializable database transaction.
-4. Create a random order of `A, A, B, B` for each block of four.
+4. Create a random ten-slot order with exactly five A and five B assignments; reserve one of each for pilot and four of each for main.
 5. Insert one `assigned_variant_id` before rendering.
 6. Commit and set a Secure, HTTP-only, SameSite=Lax cookie.
 7. Render one page without returning its A or B label.
@@ -705,7 +720,7 @@ CaptureJobRequest
 -> CaptureJobResult: spec_ready
 -> VariantBuildRequest
 -> VariantBuildResult: variants_ready
--> StudyStartRequest
+-> ReplayQaRequest -> approvals -> StudyDraftRequest
 -> StudyStarted
 -> valid A, B, stop, and technical-failure sessions
 -> StudyResult

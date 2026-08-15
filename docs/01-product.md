@@ -1,5 +1,21 @@
 # PayBench product definition
 
+> Contract v2 is frozen for this build. It supersedes older sample, ordering, completion, and Terac-launch wording below.
+
+## Contract v2 operating rules
+
+- A founder submits a website URL and a required target-customer description, then pays the existing $20 Stripe Payment Link.
+- Superserve captures the source privately. Anthropic returns a structured `PaywallSpec`; it never returns page code.
+- Control A renders that specification. Challenger B uses the same React tree and locked facts with exactly one approved `ChangePlan` operation.
+- Replay checks both pages on desktop and mobile before recruitment. It covers continue, stop, validation, survey, refresh assignment, and mocked redirect.
+- The operator approves A/B and the total Terac quote. Sponsor-credit funding must also be confirmed.
+- One neutral PayBench URL serves 10 screened target customers. Five see A and five see B. Assignment is saved server-side before render.
+- The pilot opens first with one A and one B place. Four more A and four more B places unlock only after both pilots succeed.
+- Each approved participant earns $5: $50 total before Terac's platform fee. Continuing and stopping pay equally.
+- `teracSubmissionId` and an external browser redirect are primary. A one-use `PB-` code is fallback only.
+- Results are `a_stronger_signal`, `b_stronger_signal`, `no_clear_signal`, or `insufficient_evidence`. They are directional, not statistically significant.
+- `TERAC_MODE=mock` and `TERAC_LIVE_DISABLED=true` are mandatory. This build cannot create, publish, upload, or launch a Terac opportunity.
+
 ## Product in one sentence
 
 PayBench turns a public checkout or paywall URL into a controlled A/B usability test with real participants.
@@ -13,7 +29,7 @@ The customer pays $20 for one website test. The test includes:
 - a simulated checkout on both versions;
 - behavior data from Terac participants;
 - written participant explanations;
-- a winner, or a clear `no winner` result;
+- a directional signal or a clear `no clear signal` result;
 - a short report with the recommended changes.
 
 The customer does not install a script. The customer does not prove domain ownership. PayBench tests private recreations of the submitted page. It does not change the live website.
@@ -38,11 +54,13 @@ The participant checkout is simulated. PayBench never asks a participant for a r
 10. The worker captures the page and creates a structured paywall specification.
 11. PayBench creates control A and challenger B.
 12. Automated gates reject broken or off-brand pages.
-13. Each Terac end-user receives one randomly assigned page and completes a simulated purchase task.
-14. PayBench joins behavior events with participant explanations.
-15. Replay tests the PayBench app and both generated pages.
-16. PayBench creates the report.
-17. Linq sends the report link to the founder.
+13. Replay tests the PayBench app and both generated pages.
+14. The operator approves the pages and total Terac quote.
+15. One A and one B pilot participant complete the simulated task.
+16. After both pilot journeys pass, eight remaining participant places open.
+17. PayBench joins behavior events with participant explanations.
+18. PayBench creates the directional report.
+19. Linq sends the report link to the founder.
 
 Stripe supports `client_reference_id` on Payment Links. Stripe returns it in the completed-session webhook. It must contain no sensitive data. See [Stripe Payment Link tracking](https://docs.stripe.com/payment-links/url-parameters).
 
@@ -124,7 +142,7 @@ Agent B uses mock jobs and a mock callback receiver until Workstream A is ready.
 | Agent B | Agent A | `ScoutEvidenceAccepted` |
 | Agent A | Agent B | `VariantBuildRequest` |
 | Agent B | Agent A | `VariantBuildResult` |
-| Agent A | Agent B | `StudyStartRequest` |
+| Agent A | Agent B | `StudyDraftRequest` |
 | Agent B | Agent A | `StudyStarted`, `StudyResult`, and `report-input-v1.json` |
 | Agent A | Agent B | `ReplayQaRequest` |
 | Agent B | Agent A | `ReplayQaResult` |
@@ -159,7 +177,11 @@ Copy this text into the Terac job:
 
 > **Title:** Decide whether to complete a simulated online purchase
 >
-> **Your role:** Act as an end-user who is considering buying the product shown on the page.
+> **Estimated time:** About 10 minutes.
+>
+> **Reward:** $5 after an approved completion. Continuing and stopping receive equal payment.
+>
+> **Your role:** Act as the target customer described here: **{{TARGET_CUSTOMER}}**.
 >
 > **Your situation:** You have a simulated budget of **{{SIMULATED_BUDGET}}**. This is not real money. You will not be charged, and you must not enter a real card number.
 >
@@ -167,9 +189,9 @@ Copy this text into the Terac job:
 >
 > **Task:** Open the link and review the offer as if the simulated budget were your own. If you would buy, choose an option and complete the simulated purchase with the fake information shown on the page. If you would not continue, click **I would stop here** at the point where you decide to stop. Do not complete the purchase only because this task asks you to review it.
 >
-> **After your decision:** Answer every question on the page. PayBench gives you a completion code whether you buy or stop. When you finish, copy the code that starts with `PB-` into your Terac submission.
+> **After your decision:** Answer every question on the page. There is no correct answer. PayBench will return you to Terac using your `teracSubmissionId`. If that redirect is unavailable, copy the fallback code that starts with `PB-` into your submission.
 >
-> **Do not:** use real payment information, spend real money, open the target company's live checkout in another tab, refresh to get a different page, or discuss this task with another participant.
+> **Safety:** No real money will be charged. No account or subscription will be created. Never enter real payment information. Use only the fake details shown on the page.
 >
 > **Your Terac submission must contain:** the `PB-` completion code and one sentence describing anything that made you hesitate.
 >
@@ -202,14 +224,14 @@ This is a blinded, between-groups test:
 
 1. Terac gives every end-user the same neutral job and `{{STUDY_URL}}`.
 2. On first open, PayBench creates one participant session.
-3. The server assigns that session to A or B using shuffled blocks: every block of four assignments contains two A and two B in random order.
+3. The server claims the next slot from a persisted, pre-shuffled ten-slot list containing exactly five A and five B assignments.
 4. The assignment is saved before the page loads. Refreshing keeps the same page.
 5. Each end-user sees one page only. They cannot compare pages and are not told that another page exists.
 6. Both groups receive the same scenario, simulated budget, fake details, time limit, and survey.
-7. PayBench records behavior on the assigned page and generates a one-use `PB-` completion code after the task and survey.
-8. The end-user pastes that code into Terac. PayBench accepts a result only when the code matches a real server session and has not been used before.
+7. PayBench records behavior on the assigned page and saves the required survey after either decision.
+8. The external `teracSubmissionId` redirect is primary. A one-use `PB-` code appears only when the submission ID or redirect is unavailable.
 
-The target is 20 valid end-users: 10 on A and 10 on B. The minimum usable result is six valid sessions per page. A smaller sample gives directional evidence only; PayBench does not claim statistical significance.
+The target is exactly 10 approved end-users: five on A and five on B. Each receives $5, for $50 before Terac's platform fee. The first cohort is a two-person pilot with one A and one B assignment; the other eight slots stay locked until both pilots succeed. The result is directional and never claims statistical significance.
 
 Before recruitment starts, PayBench locks the simulated-purchase decision rate as the primary metric: `Complete simulated purchase` versus `I would stop here`. Completion time, errors, backtracks, clarity, and trust are secondary metrics. This prevents choosing a winner only because one after-the-fact number looks better.
 
@@ -228,7 +250,7 @@ The result uses four groups of evidence:
 
 The challenger wins only when it improves the simulated-purchase decision rate without failing a guardrail. Guardrails include trust, clarity, accessibility, and technical errors.
 
-If the evidence is mixed, PayBench reports `No clear winner`. It then recommends a narrower follow-up test.
+If the evidence is mixed, PayBench reports `no_clear_signal`. It then recommends a narrower follow-up test.
 
 ## Sponsor roles
 
