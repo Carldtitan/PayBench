@@ -963,13 +963,18 @@ apps/web/app/api/webhooks/linq/**
 apps/web/app/api/webhooks/stripe/**
 apps/web/app/api/jobs/**
 apps/web/app/api/worker/callback/**
+apps/web/app/api/admin/**
+apps/web/app/admin/**
 apps/web/app/r/**
+apps/web/components/dashboard/**
+apps/web/src/server/dashboard/**
 apps/web/src/server/linq/**
 apps/web/src/server/stripe/**
 apps/web/src/server/orchestration/**
 apps/web/src/server/reports/**
 apps/web/src/server/experiment-engine/**
 tests/workstream-a/**
+tests/dashboard-api/**
 ```
 
 Agent A imports `packages/contracts` and `packages/db`. Agent A does not change shared schemas or migrations during the workstream.
@@ -1046,6 +1051,11 @@ Both implementations accept every shared `WorkerCommand`. The application select
 23. Deliver the report through Linq once.
 24. Stop all messages after an opt-out.
 25. Add structured logs that contain IDs and error codes, not secrets or message contents.
+26. Build the protected internal run dashboard from the shared snapshot and event schemas.
+27. Derive dashboard state from canonical workflow records; do not create a second state machine.
+28. Stream safe run events and fall back to a 15-second snapshot refresh.
+29. Show two Superserve work surfaces, aggregate Terac progress, Replay QA, artifacts, and delivery state.
+30. Mark every fixture and mock run as `Demo`.
 
 ### Agent A tests
 
@@ -1061,6 +1071,10 @@ Both implementations accept every shared `WorkerCommand`. The application select
 - mock `spec_ready`, `needs_scout`, scout-accepted, variants-ready, study-started, complete-study, and Replay results;
 - signed report access and expiration;
 - exactly one final Linq delivery.
+- dashboard access denied without the operator key;
+- dashboard snapshots and events pass shared schemas;
+- fixture runs are visibly marked `Demo`;
+- no dashboard response contains secrets, raw codes, phone numbers, payment details, or survey free text.
 
 ### Agent A checkpoints
 

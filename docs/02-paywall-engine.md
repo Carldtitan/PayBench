@@ -736,5 +736,6 @@ Workstream B is complete when:
 15. Unit, integration, browser, contract, and full mock tests pass.
 16. Type-checking and the production build pass.
 17. The full mock journey passes while Agent A is unavailable.
+18. Sandbox, study, and Replay progress callbacks pass the shared dashboard event schema and contain no sensitive data.
 
 After this workstream passes, final integration replaces only the local adapters. It does not change the shared contract.

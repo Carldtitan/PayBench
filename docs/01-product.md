@@ -93,6 +93,7 @@ Agent A owns the founder-facing product:
 - Stripe Payment Link tracking and payment webhook;
 - the Superserve start request;
 - signed worker callbacks;
+- the protected internal run dashboard;
 - report assembly and signed report page;
 - final Linq delivery.
 
