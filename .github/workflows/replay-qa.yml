@@ -1,0 +1,35 @@
+name: Replay QA
+
+on:
+  workflow_dispatch:
+    inputs:
+      control_url:
+        description: Private operator preview URL for control A
+        required: true
+        type: string
+      challenger_url:
+        description: Private operator preview URL for challenger B
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  record-paywalls:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx replayio install
+      - name: Record private paywall checks
+        run: npm run test:replay
+        env:
+          REPLAY_QA_API_TOKEN: ${{ secrets.REPLAY_QA_API_TOKEN }}
+          REPLAY_CONTROL_URL: ${{ inputs.control_url }}
+          REPLAY_CHALLENGER_URL: ${{ inputs.challenger_url }}

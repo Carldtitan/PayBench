@@ -38,31 +38,6 @@ export interface ReplayExecutionAdapter {
   }): Promise<ReplayExecutionResult>;
 }
 
-export type ReplayTransport = (url: string, init: RequestInit) => Promise<Response>;
-
-export class ReplayHttpExecutionAdapter implements ReplayExecutionAdapter {
-  constructor(
-    private readonly options: {
-      apiToken: string;
-      baseUrl: string;
-      transport?: ReplayTransport;
-    },
-  ) {
-    if (!options.apiToken) throw new Error("REPLAY_QA_API_TOKEN_MISSING");
-  }
-
-  async run(input: Parameters<ReplayExecutionAdapter["run"]>[0]): Promise<ReplayExecutionResult> {
-    const transport = this.options.transport ?? fetch;
-    const response = await transport(`${this.options.baseUrl.replace(/\/$/, "")}/runs`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${this.options.apiToken}`, "content-type": "application/json" },
-      body: JSON.stringify(input),
-    });
-    if (!response.ok) throw new ReplayGateError("REPLAY_REQUEST_FAILED", `Replay QA request failed (${response.status})`);
-    return parseReplayResult(await response.json());
-  }
-}
-
 export class MockReplayExecutionAdapter implements ReplayExecutionAdapter {
   constructor(private readonly result: ReplayExecutionResult) {}
   async run(): Promise<ReplayExecutionResult> {

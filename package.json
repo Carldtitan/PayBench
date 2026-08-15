@@ -10,6 +10,7 @@
     "dev": "npm run dev --workspace @paybench/web",
     "build": "npm run build --workspace @paybench/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "vitest run tests packages/contracts/tests"
+    "test": "vitest run tests packages/contracts/tests",
+    "test:replay": "playwright test --config playwright.replay.config.ts --project replay-chromium"
   }
 }

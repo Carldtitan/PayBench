@@ -17,10 +17,10 @@ import {
 import { buildPaywallVariants } from "../../../../../packages/paywall/src";
 import {
   AnthropicStructuredOutputAdapter,
-  ReplayHttpExecutionAdapter,
   SuperserveCaptureAdapter,
   SuperserveWorkSurfaceAdapter,
   runReplayBeforeRecruitment,
+  type ReplayExecutionAdapter,
   type ReplayExecutionResult,
 } from "../engine";
 import {
@@ -122,7 +122,7 @@ export async function runPaidJob(
     capture?: SuperserveCaptureAdapter;
     surfaces?: SuperserveWorkSurfaceAdapter;
     model?: AnthropicStructuredOutputAdapter;
-    replay?: ReplayHttpExecutionAdapter;
+    replay?: ReplayExecutionAdapter;
   } = {},
 ): Promise<PaidJobRunResult> {
   const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -313,11 +313,8 @@ export async function runPaidJob(
     await transport.request("POST", "study_assignment_slots", {}, slots, "return=minimal");
 
     let replayResult = replayFailure();
-    try {
-      const replay = dependencies.replay ?? new ReplayHttpExecutionAdapter({
-        apiToken: process.env.REPLAY_QA_API_TOKEN ?? "",
-        baseUrl: process.env.REPLAY_QA_BASE_URL ?? "https://loop-qa.replay.io/api/v1",
-      });
+    if (dependencies.replay) {
+      try {
       const qa = await runReplayBeforeRecruitment({
         job_id: jobId,
         control_url: surfaces[0].preview_url!,
@@ -330,10 +327,11 @@ export async function runPaidJob(
         quote_approved: false,
         founder_payment_confirmed: true,
         terac_credit_funding_confirmed: false,
-      }, replay);
-      replayResult = qa.replay;
-    } catch {
-      replayResult = replayFailure();
+        }, dependencies.replay);
+        replayResult = qa.replay;
+      } catch {
+        replayResult = replayFailure();
+      }
     }
 
     const replayPassed = replayResult.status === "passed" && replayResult.blocking_findings === 0;
