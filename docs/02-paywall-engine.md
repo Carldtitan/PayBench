@@ -55,18 +55,54 @@ If confidence is below the configured threshold, PayBench does not guess. It cre
 
 ## Terac scout fallback
 
-The scout receives the public URL and a short instruction:
+PayBench creates a private scout form at `{{SCOUT_FORM_URL}}`. The form displays the customer-supplied `{{TARGET_URL}}` and has separate fields for the final URL, click path, screenshots, visible text, and blockers.
 
-1. Open the website.
-2. Reach the checkout or paywall without purchasing.
-3. Upload desktop and mobile screenshots.
-4. Record the clicks used to reach it.
-5. Copy visible plan names, prices, CTA text, and legal text.
-6. State whether login or location blocked access.
+Copy this text into the Terac job:
 
-The scout does not paste passwords, card data, or private account information.
+> **Title:** Find and capture the public purchase page for a website
+>
+> **Your role:** Act as a new end-user who wants to understand the product and reach the point immediately before payment.
+>
+> **Open the PayBench task form:** `{{SCOUT_FORM_URL}}`
+>
+> The form will show the exact website under **Target website**. Open that target link in a new browser tab.
+>
+> **What to do:**
+> 1. Start at the target link shown in the form.
+> 2. Use the public website as a normal new customer would.
+> 3. Find the first page that asks you to choose a plan, start a trial, subscribe, buy, or enter payment details.
+> 4. Stop before any real purchase, trial, or account is created.
+> 5. In the PayBench form, paste the final page URL.
+> 6. Upload one full-page desktop screenshot. If the page changes after a click, also upload the state immediately before payment.
+> 7. Write the exact clicks you made, one per line, starting from the target link.
+> 8. Copy the exact visible product or plan names, prices, billing period, trial terms, main purchase button text, and nearby legal or cancellation text.
+> 9. If login, location, a broken page, or another block prevents access, stop and describe the block. Upload a screenshot of it.
+> 10. Submit the PayBench form. Copy the confirmation code that starts with `PB-SCOUT-` into your Terac submission.
+>
+> **Do not:** buy anything, start a real trial, create an account, enter a password, enter a card number, upload private information, copy website source code, or guess text that is not visible.
+>
+> **The task is complete only when:** the PayBench form is submitted and your valid `PB-SCOUT-` code is pasted into Terac.
 
-The worker merges the scout evidence into the same `PaywallSpec`. The rest of the pipeline stays unchanged.
+Example of a complete response:
+
+```text
+Target website shown in PayBench: https://example.com/pricing
+Final page: https://example.com/checkout
+Clicks:
+1. Clicked “Pricing” in the header.
+2. Selected “Pro”.
+3. Clicked “Start Pro”.
+Stopped at: the page asking for payment details.
+Visible offer: Pro — $20 per month, billed monthly.
+Main button: Start subscription.
+Legal text: Cancel at any time.
+Files: pricing-full-page.png, checkout-before-payment.png
+Completion code: PB-SCOUT-7K4M2Q
+```
+
+The example domains and code are placeholders. Each real job must contain its own PayBench form link. PayBench verifies that the code belongs to the scout task and that the required evidence fields exist before accepting the work.
+
+The worker merges the accepted evidence into the same `PaywallSpec`. The rest of the pipeline stays unchanged.
 
 ## Stage 3: extract the brand
 
@@ -228,26 +264,33 @@ If control A fails fidelity, the job returns to capture. If challenger B fails, 
 
 The worker starts the variant app on one Superserve port. It publishes that port with private preview access.
 
-PayBench creates short-lived signed preview URLs for participants. It stores the sandbox ID in Supabase, so another process can reconnect after a pause.
+PayBench creates one short-lived signed study URL for the Terac job. It stores the sandbox ID in Supabase, so another process can reconnect after a pause.
 
-Each participant URL contains opaque values:
+Terac receives one neutral study URL. When an end-user first opens it, PayBench creates an opaque participant session and assigns exactly one page. Assignment uses shuffled blocks of four with two A and two B positions in random order. The database saves the assignment before rendering. A refresh returns the same page.
 
-- `study_token`;
-- `participant_token`;
-- `order` of A and B.
-
-These values contain no phone number, email, or secret.
+The URL contains only an opaque `study_token`. The participant session uses a secure, HTTP-only cookie. Neither value contains a phone number, email address, page label, or secret.
 
 ## Stage 10: simulated checkout
 
-The checkout UI shows a clear simulation notice. PayBench supplies:
+The checkout UI shows a clear simulation notice and the task-specific simulated budget. PayBench supplies:
 
 - a fake customer name;
 - a fake billing address;
 - a fixed fake payment token;
 - a task-specific purchase goal.
 
-The participant can complete the flow without typing a card number. The final action says `Complete simulated purchase`, not `Pay now`.
+The end-user can complete the flow without typing a card number. The purchase action says `Complete simulated purchase`, not `Pay now`. A persistent secondary action says `I would stop here`. Choosing either action records the decision and opens the same survey. This avoids forcing every paid worker to finish the checkout.
+
+After either decision, the same page asks:
+
+1. What did you think you were buying?
+2. What price and billing terms did you understand?
+3. What, if anything, made you hesitate?
+4. How clear was the offer, from 1 to 5?
+5. How trustworthy did the page feel, from 1 to 5?
+6. Would you continue if this used real money? Why or why not?
+
+After all required questions are answered, the server creates a one-use `PB-` completion code. The end-user pastes that code into Terac. The code links the Terac submission to the server-side session without exposing which page was assigned or which decision was made.
 
 The telemetry endpoint accepts only approved event names. It rate-limits each participant token and rejects events after completion.
 
@@ -260,8 +303,9 @@ PayBench rejects or flags a participant session when:
 - required event checkpoints are missing;
 - the written reason is empty or copied;
 - the same participant token is reused;
+- the `PB-` completion code is missing, invalid, or already used;
 - the participant reports a technical failure;
-- A and B were not shown in the assigned order.
+- the stored page assignment changes during the session.
 
 Technical failures do not count as conversion failures. They go to the Replay and engineering queue.
 
@@ -273,10 +317,9 @@ The analysis joins event data and Terac responses by participant token. It calcu
 - median time difference;
 - error and backtrack difference;
 - clarity and trust difference;
-- first-view versus second-view effects;
-- preference count;
+- understood-offer and understood-price accuracy;
+- real-money continuation intent;
 - recurring reasons;
 - technical-failure rate.
 
 The report contains screenshots, the exact change, the evidence, limitations, and a recommendation. It never hides the sample size.
-

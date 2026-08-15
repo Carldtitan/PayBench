@@ -29,7 +29,7 @@ Stripe Payment Link -----> signed Stripe webhook
 Superserve worker <-----> Supabase artifacts and workflow state
         |
         +-----> Terac scout fallback
-        +-----> A/B preview URLs -----> Terac participants
+        +-----> one neutral study URL -----> randomly assigned Terac end-users
         +-----> Replay QA
         |
         v
@@ -112,6 +112,9 @@ Do not store a phone number in clear text unless the Linq integration requires i
 - `job_id`
 - `terac_study_id`
 - `target_sample_size`
+- `minimum_valid_per_variant`
+- `assignment_mode`
+- `primary_metric`
 - `status`
 - `started_at`
 - `completed_at`
@@ -121,7 +124,9 @@ Do not store a phone number in clear text unless the Linq integration requires i
 - `id`
 - `study_id`
 - `participant_token_hash`
-- `assigned_order`
+- `assigned_variant_id`
+- `confirmation_code_hash`
+- `confirmation_code_used_at`
 - `quality_status`
 - `started_at`
 - `completed_at`
@@ -141,10 +146,29 @@ Do not store a phone number in clear text unless the Linq integration requires i
 - `id`
 - `participant_session_id`
 - `variant_id`
+- `understood_offer_text`
+- `understood_price_terms_text`
+- `hesitation_text`
 - `clarity_score`
 - `trust_score`
-- `purchase_confidence_score`
-- `reason_text`
+- `would_continue_with_real_money`
+- `continuation_reason_text`
+
+### `scout_tasks`
+
+- `id`
+- `job_id`
+- `terac_task_id`
+- `task_token_hash`
+- `target_url`
+- `final_url`
+- `click_path_json`
+- `visible_offer_text`
+- `artifact_paths`
+- `blocker_text`
+- `confirmation_code_hash`
+- `quality_status`
+- `submitted_at`
 
 ### `reports`
 
@@ -274,7 +298,7 @@ For each paid job:
 6. Generate and validate A and B.
 7. Start the preview server.
 8. Publish one private preview port.
-9. Create signed participant URLs.
+9. Create one signed study URL; assign one page per end-user on first open.
 10. Pause the sandbox while waiting for Terac results.
 11. Reconnect for analysis and report generation.
 12. Delete the sandbox after report retention expires.
@@ -290,6 +314,8 @@ The Superserve API key stays in the PayBench backend. Credentials used inside a 
 | `POST /api/jobs` | Create a job from a website URL |
 | `POST /api/jobs/:id/start` | Start the paid Superserve workflow |
 | `POST /api/worker/callback` | Receive authenticated stage results from the worker |
+| `GET /scout/:token` | Show the exact target link and evidence form to one Terac scout |
+| `POST /api/scout/:token` | Store valid scout evidence and issue a one-use code |
 | `POST /api/studies/:id/events` | Receive approved simulated-checkout events |
 | `GET /r/:token` | Show a signed, expiring report |
 | `GET /s/:token` | Open a signed participant test session |
@@ -335,6 +361,20 @@ The application needs:
 The application does not need `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, or `STRIPE_PRICE_ID` for the fixed Dashboard Payment Link MVP.
 
 The organizer-only `rk_live_...` key never goes in the application. Submit it only with the team name and Payment Link.
+
+### Stripe completion checklist
+
+Creating the Payment Link is one completed step. It is not the whole Stripe setup.
+
+1. Stay in the new PayBench Stripe account. Do not create another account or another Payment Link.
+2. Wait for Stripe's background verification. Check the Stripe notifications and **Settings > Account status**. If Stripe shows no requested task, there is nothing to enter while the review is pending.
+3. When Stripe approves the account, confirm that live Payments are active. Open the submitted Payment Link in a private browser window and confirm that the live checkout loads without a payments-disabled message.
+4. Put that one link in `STRIPE_PAYMENT_LINK_URL`. Keep using the same submitted link for every hackathon customer.
+5. For the hackathon organizer only, open **Developers > API keys > Restricted keys > Create restricted key** in the PayBench account. Name it `Hackathon revenue verification`, give **Read** access to **Balance** and **Charges**, and leave every other permission as **None**. Submit the resulting `rk_live_...` key through the organizer's private form. Do not put it in `.env`, GitHub, chat, or the PayBench application.
+6. After PayBench has a public HTTPS address, create the Stripe webhook endpoint `https://YOUR_DOMAIN/api/webhooks/stripe`. Listen for `checkout.session.completed`, `checkout.session.async_payment_succeeded`, and `checkout.session.async_payment_failed`. Copy that endpoint's `whsec_...` signing secret into `STRIPE_WEBHOOK_SECRET`.
+7. Complete one real purchase from a consenting customer through the submitted live link. A sandbox purchase or PayBench participant's simulated purchase does not count as revenue.
+
+The application can be built while verification is pending. Live revenue and automatic fulfillment must wait until Stripe enables live payments. The Payment Link takes the founder's real $20 payment; it is never used for Terac's simulated checkout.
 
 ## Values available only after deployment
 
@@ -390,9 +430,22 @@ Use `REPLAY_QA_API_TOKEN` for the sponsor QA loop.
 
 ### Milestone 3: human study
 
-- Terac opens signed participant links.
+- Terac posts the neutral end-user task with one signed study link.
+- PayBench assigns each end-user to one page with a stored, balanced random assignment.
+- A one-use completion code connects the Terac submission to valid server telemetry.
 - Telemetry and explanations reach Supabase.
 - Invalid sessions are separated from valid sessions.
+
+## Terac operating rules
+
+There are two different Terac jobs:
+
+1. **Scout capture job:** one end-user follows the exact target website shown in PayBench, stops before payment, and submits URLs, screenshots, click steps, and exact visible offer text through the PayBench scout form. The copy-and-paste job is in [02-paywall-engine.md](./02-paywall-engine.md#terac-scout-fallback).
+2. **Blinded purchase task:** many end-users receive the same neutral study URL and simulated budget. Each sees one assigned page only and chooses either **Complete simulated purchase** or **I would stop here**. The copy-and-paste job is in [01-product.md](./01-product.md#terac-job-2-blinded-end-user-purchase-task).
+
+Never rely on a Terac text answer alone. Accept a job only when its one-use PayBench completion code matches a server record. The scout code requires submitted evidence. The participant code requires a loaded assigned page, required behavior events, and completed questions.
+
+Before posting either job, replace every `{{PLACEHOLDER}}`, open the link in a private browser window, complete the task once, and confirm that PayBench issues a valid code.
 
 ### Milestone 4: report and delivery
 
