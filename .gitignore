@@ -8,3 +8,10 @@ Do not push/
 
 # Common local overrides
 *.local
+
+# JavaScript build output
+node_modules/
+.next/
+dist/
+coverage/
+*.tsbuildinfo
