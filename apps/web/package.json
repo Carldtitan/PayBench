@@ -9,14 +9,19 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
+    "@linqapp/sdk": "^0.39.2",
     "@next/env": "^16.3.1",
     "@paybench/contracts": "*",
     "@superserve/sdk": "^0.8.2",
     "next": "^16.3.1",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "stripe": "^22.5.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@replayio/playwright": "^5.0.3",
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
