@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveSupabaseServerKey } from "../../apps/web/src/server/control/supabase-repository";
+import {
+  SupabaseControlTransport,
+  resolveSupabaseServerKey,
+} from "../../apps/web/src/server/control/supabase-repository";
 
 describe("Supabase server credential resolution", () => {
   it("uses a valid configured server key without a management call", async () => {
@@ -28,3 +31,15 @@ describe("Supabase server credential resolution", () => {
   });
 });
 
+describe("Supabase control transport", () => {
+  it("accepts an empty 201 response for return-minimal inserts", async () => {
+    const transport = new SupabaseControlTransport(
+      "https://example.supabase.co",
+      `sb_secret_${"x".repeat(30)}`,
+      async () => new Response(null, { status: 201 }),
+    );
+    await expect(
+      transport.request("POST", "webhook_events", {}, { provider: "stripe" }, "return=minimal"),
+    ).resolves.toEqual([]);
+  });
+});

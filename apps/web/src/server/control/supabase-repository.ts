@@ -84,7 +84,9 @@ export class SupabaseControlTransport {
     });
     if (!response.ok) throw new ControlError(`SUPABASE_${table.toUpperCase()}_${method}_FAILED`, 503);
     if (response.status === 204) return [];
-    const payload: unknown = await response.json();
+    const responseText = await response.text();
+    if (!responseText.trim()) return [];
+    const payload: unknown = JSON.parse(responseText) as unknown;
     return Array.isArray(payload) ? payload.filter((row): row is Row => Boolean(row) && typeof row === "object") : [];
   }
 }
