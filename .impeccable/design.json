@@ -1,0 +1,223 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-15T15:06:36.9890349-07:00",
+  "title": "Design System: PayBench Run Desk",
+  "extensions": {
+    "colorMeta": {
+      "harbor": {
+        "role": "primary",
+        "displayName": "Harbor Blue",
+        "canonical": "oklch(0.45 0.086 230)",
+        "tonalRamp": ["oklch(0.15 0.086 230)", "oklch(0.27 0.086 230)", "oklch(0.39 0.086 230)", "oklch(0.51 0.086 230)", "oklch(0.63 0.086 230)", "oklch(0.75 0.086 230)", "oklch(0.87 0.086 230)", "oklch(0.95 0.086 230)"]
+      },
+      "harbor-deep": {
+        "role": "primary",
+        "displayName": "Deep Harbor",
+        "canonical": "oklch(0.29 0.055 230)",
+        "tonalRamp": ["oklch(0.15 0.055 230)", "oklch(0.27 0.055 230)", "oklch(0.39 0.055 230)", "oklch(0.51 0.055 230)", "oklch(0.63 0.055 230)", "oklch(0.75 0.055 230)", "oklch(0.87 0.055 230)", "oklch(0.95 0.055 230)"]
+      },
+      "harbor-ink": {
+        "role": "neutral",
+        "displayName": "Harbor Ink",
+        "canonical": "oklch(0.23 0.038 230)",
+        "tonalRamp": ["oklch(0.15 0.038 230)", "oklch(0.27 0.038 230)", "oklch(0.39 0.038 230)", "oklch(0.51 0.038 230)", "oklch(0.63 0.038 230)", "oklch(0.75 0.038 230)", "oklch(0.87 0.038 230)", "oklch(0.95 0.038 230)"]
+      },
+      "harbor-pale": {
+        "role": "primary",
+        "displayName": "Harbor Wash",
+        "canonical": "oklch(0.94 0.022 230)",
+        "tonalRamp": ["oklch(0.15 0.022 230)", "oklch(0.27 0.022 230)", "oklch(0.39 0.022 230)", "oklch(0.51 0.022 230)", "oklch(0.63 0.022 230)", "oklch(0.75 0.022 230)", "oklch(0.87 0.022 230)", "oklch(0.95 0.022 230)"]
+      },
+      "brass": {
+        "role": "secondary",
+        "displayName": "Live Brass",
+        "canonical": "oklch(0.74 0.14 78)",
+        "tonalRamp": ["oklch(0.15 0.14 78)", "oklch(0.27 0.14 78)", "oklch(0.39 0.14 78)", "oklch(0.51 0.14 78)", "oklch(0.63 0.14 78)", "oklch(0.75 0.14 78)", "oklch(0.87 0.14 78)", "oklch(0.95 0.14 78)"]
+      },
+      "brass-pale": {
+        "role": "secondary",
+        "displayName": "Brass Wash",
+        "canonical": "oklch(0.95 0.045 78)",
+        "tonalRamp": ["oklch(0.15 0.045 78)", "oklch(0.27 0.045 78)", "oklch(0.39 0.045 78)", "oklch(0.51 0.045 78)", "oklch(0.63 0.045 78)", "oklch(0.75 0.045 78)", "oklch(0.87 0.045 78)", "oklch(0.95 0.045 78)"]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "oklch(0.985 0.004 225)",
+        "tonalRamp": ["oklch(0.15 0.004 225)", "oklch(0.27 0.004 225)", "oklch(0.39 0.004 225)", "oklch(0.51 0.004 225)", "oklch(0.63 0.004 225)", "oklch(0.75 0.004 225)", "oklch(0.87 0.004 225)", "oklch(0.95 0.004 225)"]
+      },
+      "worktop": {
+        "role": "neutral",
+        "displayName": "Worktop",
+        "canonical": "oklch(0.955 0.009 225)",
+        "tonalRamp": ["oklch(0.15 0.009 225)", "oklch(0.27 0.009 225)", "oklch(0.39 0.009 225)", "oklch(0.51 0.009 225)", "oklch(0.63 0.009 225)", "oklch(0.75 0.009 225)", "oklch(0.87 0.009 225)", "oklch(0.95 0.009 225)"]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Rule Line",
+        "canonical": "oklch(0.86 0.012 225)",
+        "tonalRamp": ["oklch(0.15 0.012 225)", "oklch(0.27 0.012 225)", "oklch(0.39 0.012 225)", "oklch(0.51 0.012 225)", "oklch(0.63 0.012 225)", "oklch(0.75 0.012 225)", "oklch(0.87 0.012 225)", "oklch(0.95 0.012 225)"]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted Slate",
+        "canonical": "oklch(0.52 0.024 230)",
+        "tonalRamp": ["oklch(0.15 0.024 230)", "oklch(0.27 0.024 230)", "oklch(0.39 0.024 230)", "oklch(0.51 0.024 230)", "oklch(0.63 0.024 230)", "oklch(0.75 0.024 230)", "oklch(0.87 0.024 230)", "oklch(0.95 0.024 230)"]
+      },
+      "success": {
+        "role": "tertiary",
+        "displayName": "Completion Green",
+        "canonical": "oklch(0.53 0.11 152)",
+        "tonalRamp": ["oklch(0.15 0.11 152)", "oklch(0.27 0.11 152)", "oklch(0.39 0.11 152)", "oklch(0.51 0.11 152)", "oklch(0.63 0.11 152)", "oklch(0.75 0.11 152)", "oklch(0.87 0.11 152)", "oklch(0.95 0.11 152)"]
+      },
+      "danger": {
+        "role": "tertiary",
+        "displayName": "Failure Red",
+        "canonical": "oklch(0.53 0.18 25)",
+        "tonalRamp": ["oklch(0.15 0.18 25)", "oklch(0.27 0.18 25)", "oklch(0.39 0.18 25)", "oklch(0.51 0.18 25)", "oklch(0.63 0.18 25)", "oklch(0.75 0.18 25)", "oklch(0.87 0.18 25)", "oklch(0.95 0.18 25)"]
+      },
+      "danger-pale": {
+        "role": "tertiary",
+        "displayName": "Failure Wash",
+        "canonical": "oklch(0.96 0.025 25)",
+        "tonalRamp": ["oklch(0.15 0.025 25)", "oklch(0.27 0.025 25)", "oklch(0.39 0.025 25)", "oklch(0.51 0.025 25)", "oklch(0.63 0.025 25)", "oklch(0.75 0.025 25)", "oklch(0.87 0.025 25)", "oklch(0.95 0.025 25)"]
+      },
+      "white": {
+        "role": "neutral",
+        "displayName": "White",
+        "canonical": "oklch(1 0 0)",
+        "tonalRamp": ["oklch(0.15 0 0)", "oklch(0.27 0 0)", "oklch(0.39 0 0)", "oklch(0.51 0 0)", "oklch(0.63 0 0)", "oklch(0.75 0 0)", "oklch(0.87 0 0)", "oklch(0.95 0 0)"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Founder names and the strongest page identity." },
+      "headline": { "displayName": "Headline", "purpose": "Current action and access-gate heading." },
+      "title": { "displayName": "Title", "purpose": "Module headings and compact panel titles." },
+      "body-large": { "displayName": "Body Large", "purpose": "Brand and stronger supporting copy." },
+      "body": { "displayName": "Body", "purpose": "Default interface text and cue labels." },
+      "label": { "displayName": "Operational Label", "purpose": "Status, metadata, times, actor chips, paths, IDs, and codes." }
+    },
+    "shadows": [
+      { "name": "live-glow", "value": "2px 2px 8px color-mix(in oklch, var(--brass) 45%, transparent)", "purpose": "Marks a changing status dot." },
+      { "name": "active-cue-glow", "value": "2px 3px 9px color-mix(in oklch, var(--brass) 38%, transparent)", "purpose": "Lifts the current cue glyph." },
+      { "name": "selected-run-offset", "value": "3px 4px 0 var(--brass)", "purpose": "Pins the chosen run in the dark rail." },
+      { "name": "action-offset", "value": "5px 7px 0 color-mix(in oklch, var(--harbor) 32%, var(--line))", "purpose": "Gives the next-action module visual authority." },
+      { "name": "monitor-ambient", "value": "0 9px 26px color-mix(in oklch, var(--harbor-deep) 13%, transparent)", "purpose": "Separates live sandbox monitors from the worktop." },
+      { "name": "gate-offset", "value": "7px 9px 0 color-mix(in oklch, var(--harbor) 25%, var(--line))", "purpose": "Grounds the operator access form." }
+    ],
+    "motion": [
+      { "name": "drawer-enter", "value": "transform 190ms cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Moves the mobile run rail on and off canvas." },
+      { "name": "reduced-motion", "value": "0.01ms", "purpose": "Collapses transitions and animations when reduced motion is requested." }
+    ],
+    "breakpoints": [
+      { "name": "stack-primary", "value": "1080px" },
+      { "name": "drawer-rail", "value": "840px" },
+      { "name": "compact", "value": "620px" },
+      { "name": "narrow", "value": "390px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Confirms operator actions and opens the run desk.",
+      "html": "<button class=\"ds-button-primary\">Open run desk</button>",
+      "css": ".ds-button-primary { display:inline-flex; min-height:42px; align-items:center; justify-content:center; padding:0 17px; border:0; border-radius:9px; color:var(--white); background:var(--harbor); font-family:var(--font-recursive), 'Arial Narrow', Arial, sans-serif; font-size:var(--size-xs); font-weight:690; cursor:pointer; } .ds-button-primary:hover { background:var(--harbor-deep); } .ds-button-primary:focus-visible { outline:3px solid var(--brass); outline-offset:3px; } .ds-button-primary:active { transform:translateY(1px); }"
+    },
+    {
+      "name": "Secondary Refresh Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Refreshes live run data without competing with the current action.",
+      "html": "<button class=\"ds-button-secondary\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" aria-hidden=\"true\"><path d=\"M20 11a8 8 0 1 0-2.34 5.66\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M20 4v7h-7\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg><span>Refresh</span></button>",
+      "css": ".ds-button-secondary { display:inline-flex; min-height:36px; align-items:center; justify-content:center; gap:8px; padding:0 13px; border:0; border-radius:9px; color:var(--harbor); background:var(--harbor-pale); font-family:var(--font-recursive), 'Arial Narrow', Arial, sans-serif; font-size:var(--size-xs); font-weight:690; cursor:pointer; } .ds-button-secondary:hover { color:var(--harbor-deep); background:color-mix(in oklch, var(--harbor-pale) 72%, var(--harbor) 28%); } .ds-button-secondary:focus-visible { outline:3px solid var(--brass); outline-offset:3px; } .ds-button-secondary:active { transform:translateY(1px); }"
+    },
+    {
+      "name": "Operator Access Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Collects the private operator access key.",
+      "html": "<label class=\"ds-field-label\" for=\"ds-access\">Access key</label><input class=\"ds-field\" id=\"ds-access\" type=\"password\" value=\"paybench\" />",
+      "css": ".ds-field-label { display:block; margin-bottom:7px; color:var(--harbor-ink); font-family:var(--font-recursive), 'Arial Narrow', Arial, sans-serif; font-size:var(--size-xxs); font-weight:720; } .ds-field { width:100%; height:44px; padding:0 12px; border:1px solid var(--line); border-radius:9px; color:var(--harbor-ink); background:var(--white); font-family:var(--font-recursive), 'Arial Narrow', Arial, sans-serif; font-size:var(--size-xs); } .ds-field:hover { border-color:var(--muted); } .ds-field:focus { border-color:var(--harbor); } .ds-field:focus-visible { outline:3px solid var(--brass); outline-offset:3px; }"
+    },
+    {
+      "name": "Selected Run Row",
+      "kind": "nav",
+      "refersTo": "run-row-selected",
+      "description": "Keeps one founder and one job in focus inside the run rail.",
+      "html": "<button class=\"ds-run-row\"><span class=\"ds-run-top\"><strong>Northstar</strong><small>Demo</small></span><span class=\"ds-run-host\">northstar.example</span><span class=\"ds-run-foot\"><i></i><span>Study</span><time>1:24 PM</time></span></button>",
+      "css": ".ds-run-row { display:flex; width:100%; flex-direction:column; gap:5px; padding:13px 12px; border:0; border-radius:12px; color:var(--harbor-ink); background:var(--brass-pale); box-shadow:3px 4px 0 var(--brass); text-align:left; font-family:var(--font-recursive), 'Arial Narrow', Arial, sans-serif; cursor:pointer; } .ds-run-row:hover { filter:saturate(1.08); } .ds-run-row:focus-visible { outline:3px solid var(--brass); outline-offset:3px; } .ds-run-row:active { transform:translateY(1px); } .ds-run-top,.ds-run-foot { display:flex; align-items:center; gap:7px; } .ds-run-top strong { flex:1; font-size:var(--size-xs); font-weight:720; } .ds-run-top small,.ds-run-host,.ds-run-foot { color:var(--harbor); font-size:var(--size-xxs); } .ds-run-foot i { width:6px; height:6px; border-radius:50%; background:var(--brass); } .ds-run-foot time { margin-left:auto; }"
+    },
+    {
+      "name": "Active Rundown Cue",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "Shows the current stage, actor, and time in one ruled row.",
+      "html": "<div class=\"ds-cue\"><span class=\"ds-cue-number\">05</span><span class=\"ds-cue-glyph\">▶</span><span class=\"ds-cue-copy\"><strong>Study</strong><small>Collect valid sessions</small></span><span class=\"ds-cue-chip\">Terac</span><time>1:16 PM</time></div>",
+      "css": ".ds-cue { display:grid; min-height:56px; grid-template-columns:32px 34px minmax(0,1fr) auto 56px; align-items:center; gap:8px; padding:7px 14px; border-top:1px solid var(--line); color:var(--harbor-ink); background:var(--harbor-pale); font-family:var(--font-recursive), 'Arial Narrow', Arial, sans-serif; } .ds-cue:hover { background:color-mix(in oklch, var(--harbor-pale) 82%, var(--harbor) 18%); } .ds-cue:focus-within { outline:3px solid var(--brass); outline-offset:-3px; } .ds-cue-number,.ds-cue time { color:var(--muted); font-size:var(--size-xxs); font-variation-settings:'CASL' 0, 'MONO' 1; } .ds-cue-glyph { display:grid; place-items:center; width:28px; height:28px; border-radius:50%; color:var(--harbor-deep); background:var(--brass); box-shadow:2px 3px 9px color-mix(in oklch, var(--brass) 38%, transparent); font-size:10px; } .ds-cue-copy { display:flex; min-width:0; flex-direction:column; } .ds-cue-copy strong { font-size:var(--size-xs); font-weight:700; } .ds-cue-copy small { color:var(--muted); font-size:var(--size-xxs); } .ds-cue-chip { padding:4px 8px; border-radius:999px; color:var(--harbor); background:var(--harbor-pale); font-size:var(--size-xxs); font-weight:760; } .ds-cue time { text-align:right; }"
+    },
+    {
+      "name": "Next Action Board",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Gives the operator's next action visual authority beside the rundown.",
+      "html": "<aside class=\"ds-action\"><span>ON DECK</span><strong>Collect the remaining valid sessions</strong><small>Study</small></aside>",
+      "css": ".ds-action { display:flex; min-height:178px; flex-direction:column; justify-content:space-between; padding:17px; border-radius:var(--radius,14px); color:var(--white); background:var(--harbor); box-shadow:5px 7px 0 color-mix(in oklch, var(--harbor) 32%, var(--line)); font-family:var(--font-recursive), 'Arial Narrow', Arial, sans-serif; } .ds-action:hover { box-shadow:6px 8px 0 color-mix(in oklch, var(--harbor) 32%, var(--line)); } .ds-action:focus-within { outline:3px solid var(--brass); outline-offset:3px; } .ds-action > span { color:color-mix(in oklch, var(--white) 72%, var(--harbor) 28%); font-size:var(--size-xxs); font-weight:760; letter-spacing:.05em; } .ds-action strong { max-width:18ch; font-size:var(--size-lg); font-weight:720; font-variation-settings:'CASL' .25; line-height:1.15; } .ds-action small { width:fit-content; padding:4px 8px; border-radius:999px; color:var(--harbor-deep); background:var(--brass-pale); font-size:var(--size-xxs); }"
+    },
+    {
+      "name": "Superserve Sandbox Monitor",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "Frames one live Superserve worker with variant, task, state, and activity.",
+      "html": "<section class=\"ds-sandbox\"><header><span class=\"ds-variant\">A</span><strong>Control paywall ready</strong><small><i></i> Ready</small></header><div class=\"ds-monitor\"><div class=\"ds-browser\"><span>•••</span><small>paybench.preview</small></div><div class=\"ds-preview\"><strong>$29 / month</strong><button>Start now</button></div></div><footer><span>demo-sandbox-a</span><time>1:12 PM</time><span>No live link</span></footer></section>",
+      "css": ".ds-sandbox { overflow:hidden; border-radius:var(--radius,14px); color:var(--harbor-ink); background:var(--paper); box-shadow:0 9px 26px color-mix(in oklch, var(--harbor-deep) 13%, transparent); font-family:var(--font-recursive), 'Arial Narrow', Arial, sans-serif; } .ds-sandbox:hover { box-shadow:0 11px 30px color-mix(in oklch, var(--harbor-deep) 16%, transparent); } .ds-sandbox:focus-within { outline:3px solid var(--brass); outline-offset:3px; } .ds-sandbox header { display:flex; min-height:58px; align-items:center; gap:10px; padding:0 15px; } .ds-sandbox header strong { flex:1; font-size:var(--size-sm); font-weight:720; } .ds-sandbox header small { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:var(--size-xxs); font-weight:680; } .ds-sandbox header small i { width:7px; height:7px; border-radius:50%; background:var(--success); } .ds-variant { display:grid; place-items:center; width:28px; height:28px; border-radius:999px; color:var(--white); background:var(--harbor); font-size:var(--size-xxs); font-weight:760; } .ds-monitor { margin:0; padding:13px; background:var(--harbor-deep); } .ds-browser { display:flex; align-items:center; gap:8px; height:26px; padding:0 9px; border-radius:8px 8px 0 0; color:var(--line); background:var(--worktop); font-size:9px; } .ds-browser small { color:var(--muted); } .ds-preview { display:flex; min-height:150px; flex-direction:column; justify-content:center; gap:12px; padding:24px; border-radius:0 0 8px 8px; background:var(--paper); } .ds-preview strong { font-size:var(--size-md); } .ds-preview button { min-height:30px; border:0; border-radius:7px; color:var(--white); background:var(--harbor); font-size:10px; font-weight:720; } .ds-preview button:hover { background:var(--harbor-deep); } .ds-preview button:focus-visible { outline:3px solid var(--brass); outline-offset:3px; } .ds-preview button:active { transform:translateY(1px); } .ds-sandbox footer { display:flex; min-height:44px; align-items:center; gap:13px; padding:0 15px; color:var(--muted); font-size:var(--size-xxs); } .ds-sandbox footer time { margin-left:auto; }"
+    },
+    {
+      "name": "Replay QA Progress",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "Shows the current Replay journey, completion, and blocking findings.",
+      "html": "<section class=\"ds-replay\"><header><strong>Replay QA</strong><small><i></i> Queued</small></header><div class=\"ds-replay-now\"><span>Queued</span><strong>0%</strong></div><progress max=\"8\" value=\"0\">0 of 8</progress><footer><span>0/8 checks</span><span>0 blocking</span><span>Run link pending</span></footer></section>",
+      "css": ".ds-replay { position:relative; padding:0 17px 17px; border-radius:0 0 var(--radius,14px) var(--radius,14px); color:var(--harbor-ink); background:var(--paper); font-family:var(--font-recursive), 'Arial Narrow', Arial, sans-serif; } .ds-replay::before { position:absolute; top:0; right:0; left:0; height:4px; background:var(--brass); content:''; } .ds-replay:hover { background:color-mix(in oklch, var(--paper) 94%, var(--brass) 6%); } .ds-replay:focus-within { outline:3px solid var(--brass); outline-offset:3px; } .ds-replay header { display:flex; min-height:52px; align-items:center; justify-content:space-between; } .ds-replay header strong { color:var(--harbor-deep); font-size:var(--size-md); font-weight:770; } .ds-replay header small { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:var(--size-xxs); font-weight:680; } .ds-replay header i { width:7px; height:7px; border-radius:50%; background:var(--muted); } .ds-replay-now { display:flex; min-height:80px; align-items:center; justify-content:space-between; gap:20px; } .ds-replay-now span { font-size:var(--size-sm); font-weight:670; } .ds-replay-now strong { color:var(--harbor-deep); font-size:var(--size-xl); } .ds-replay progress { display:block; width:100%; height:11px; overflow:hidden; border:0; border-radius:999px; background:var(--line); accent-color:var(--brass); } .ds-replay footer { display:flex; gap:13px; padding-top:15px; color:var(--muted); font-size:var(--size-xxs); } .ds-replay footer > :last-child { margin-left:auto; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Live Rundown",
+    "overview": "PayBench reads like a stage manager's cue sheet for one paid study. The selected run leads, its eight cues stay ordered, and the next action is impossible to miss. The interface is operational, compact, and calm under time pressure.\n\nThe world combines a bright work surface with deep harbor blue and rare brass live cues. Ruled modules, asymmetric columns, and live monitor frames replace generic metric-card grids. Copy stays short; status, position, time, actor, and artifact carry the meaning.",
+    "keyCharacteristics": [
+      "One selected run is the unit of attention.",
+      "Ordered cues lead before evidence and history.",
+      "Brass marks work in motion; green confirms completion; red marks failure.",
+      "Recursive variable type shifts from casual display weight to mono-like operational data.",
+      "Desktop uses a fixed run rail; mobile turns it into a dismissible drawer.",
+      "Labels are terse and controls rely on familiar form."
+    ],
+    "rules": [
+      { "name": "The Cue-Light Rule", "body": "Brass marks active or changing state; it never becomes general decoration.", "section": "colors" },
+      { "name": "The Three-State Rule", "body": "Every status pairs color with readable text or a recognizable glyph: green is complete, brass is active, and red is blocked or failed.", "section": "colors" },
+      { "name": "The Fixed-Scale Rule", "body": "Use only the implemented 11, 13, 15, 17, 23, and 31px sizes; hierarchy comes from weight, variation axes, and placement.", "section": "typography" },
+      { "name": "The Operational Mono Rule", "body": "Enable the MONO axis only for IDs, codes, timestamps, file paths, and compact machine data.", "section": "typography" },
+      { "name": "The One-Run Rule", "body": "Navigation selects a founder; every module in the workspace belongs to that one run.", "section": "layout" },
+      { "name": "The Cue-First Rule", "body": "Rundown and next action precede sandboxes, study evidence, artifacts, and the event ledger at every width.", "section": "layout" },
+      { "name": "The Evidence-Stays-Flat Rule", "body": "Rundown, artifacts, ledger, study, and Replay use tonal layering or rules; shadow is reserved for selection, action, monitoring, and access.", "section": "elevation" },
+      { "name": "The Nested-Corner Rule", "body": "Outer modules have the largest radius; embedded controls and marks step down so nested layers remain clear.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do lead every workspace with the selected run, eight-cue rundown, and current action.",
+      "Do preserve the fixed 11, 13, 15, 17, 23, and 31px type scale.",
+      "Do keep copy short enough to scan while the run is moving.",
+      "Do pair every status color with text or a glyph.",
+      "Do show live work as a monitor, progress bar, timestamp, artifact, or ledger event.",
+      "Do keep the 14px surface radius and tighter nested radii."
+    ],
+    "donts": [
+      "Don't turn the desk into a generic grid of summary cards.",
+      "Don't use brass as a broad brand fill; reserve it for live cues and variant B.",
+      "Don't add descriptions under self-explanatory navigation, buttons, or module titles.",
+      "Don't expose secrets, participant codes, phone numbers, payment data, or survey free text.",
+      "Don't claim statistical significance or proven revenue lift from the small study.",
+      "Don't show founder or Terac interfaces in this internal operator system."
+    ]
+  }
+}
