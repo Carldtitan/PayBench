@@ -3,6 +3,7 @@ import {
   clearDashboardSessionCookie,
   dashboardSessionCookie,
   dashboardSessionToken,
+  normalizeDashboardAccessKey,
 } from "../../../../src/server/dashboard/auth";
 import { jsonError, jsonOk } from "../../../../src/server/dashboard/http";
 
@@ -21,10 +22,15 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError(400, "INVALID_REQUEST", "Enter the dashboard access key");
   }
 
+  const normalizedAccessKey =
+    typeof body.access_key === "string"
+      ? normalizeDashboardAccessKey(body.access_key)
+      : "";
+
   if (
     typeof body.access_key !== "string" ||
     body.access_key.length > 256 ||
-    !(await accessKeyMatches(body.access_key))
+    !(await accessKeyMatches(normalizedAccessKey))
   ) {
     return jsonError(401, "INVALID_ACCESS_KEY", "Access key not accepted");
   }
@@ -32,7 +38,7 @@ export async function POST(request: Request): Promise<Response> {
   const response = jsonOk({ authenticated: true });
   response.headers.set(
     "Set-Cookie",
-    dashboardSessionCookie(await dashboardSessionToken(body.access_key)),
+    dashboardSessionCookie(await dashboardSessionToken(normalizedAccessKey)),
   );
   return response;
 }
@@ -42,4 +48,3 @@ export async function DELETE(): Promise<Response> {
   response.headers.set("Set-Cookie", clearDashboardSessionCookie());
   return response;
 }
-

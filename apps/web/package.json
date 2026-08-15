@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@next/env": "^16.3.1",
     "@paybench/contracts": "*",
     "@superserve/sdk": "^0.8.2",
     "next": "^16.3.1",

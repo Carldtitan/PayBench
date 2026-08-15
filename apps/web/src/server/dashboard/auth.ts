@@ -31,12 +31,29 @@ export async function dashboardSessionToken(accessKey: string): Promise<string> 
   return sha256(`paybench-dashboard-session:${accessKey}`);
 }
 
+export function normalizeDashboardAccessKey(candidate: string): string {
+  let normalized = candidate.trim();
+  if (normalized.startsWith("DASHBOARD_ACCESS_KEY=")) {
+    normalized = normalized.slice("DASHBOARD_ACCESS_KEY=".length).trim();
+  }
+  if (
+    normalized.length >= 2 &&
+    ((normalized.startsWith('"') && normalized.endsWith('"')) ||
+      (normalized.startsWith("'") && normalized.endsWith("'")))
+  ) {
+    normalized = normalized.slice(1, -1);
+  }
+  return normalized;
+}
+
 export async function accessKeyMatches(candidate: string): Promise<boolean> {
   const expected = process.env.DASHBOARD_ACCESS_KEY;
   if (!expected || !candidate) return false;
+  const normalizedCandidate = normalizeDashboardAccessKey(candidate);
+  const normalizedExpected = normalizeDashboardAccessKey(expected);
   const [candidateDigest, expectedDigest] = await Promise.all([
-    sha256(`paybench-dashboard-access:${candidate}`),
-    sha256(`paybench-dashboard-access:${expected}`),
+    sha256(`paybench-dashboard-access:${normalizedCandidate}`),
+    sha256(`paybench-dashboard-access:${normalizedExpected}`),
   ]);
   return constantTimeEqual(candidateDigest, expectedDigest);
 }
@@ -52,7 +69,10 @@ export async function isDashboardRequestAuthorized(
   const expected = process.env.DASHBOARD_ACCESS_KEY;
   const session = readCookie(request, DASHBOARD_SESSION_COOKIE);
   if (!expected || !session) return false;
-  return constantTimeEqual(session, await dashboardSessionToken(expected));
+  return constantTimeEqual(
+    session,
+    await dashboardSessionToken(normalizeDashboardAccessKey(expected)),
+  );
 }
 
 export function dashboardSessionCookie(token: string): string {
@@ -63,4 +83,3 @@ export function dashboardSessionCookie(token: string): string {
 export function clearDashboardSessionCookie(): string {
   return `${DASHBOARD_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`;
 }
-
