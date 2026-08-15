@@ -28,9 +28,6 @@ const readySandboxes: SandboxLiveState[] = [
     sandbox_id: "demo-sandbox-a",
     status: "ready",
     task: "Control paywall ready",
-    viewer_url: "https://viewer.superserve.example/demo-a",
-    preview_url: "https://preview.paybench.example/demo-a",
-    latest_frame_url: "https://assets.paybench.example/demo-a.webp",
     last_activity_at: "2026-08-15T20:12:00.000Z",
   },
   {
@@ -38,9 +35,6 @@ const readySandboxes: SandboxLiveState[] = [
     sandbox_id: "demo-sandbox-b",
     status: "ready",
     task: "Challenger paywall ready",
-    viewer_url: "https://viewer.superserve.example/demo-b",
-    preview_url: "https://preview.paybench.example/demo-b",
-    latest_frame_url: "https://assets.paybench.example/demo-b.webp",
     last_activity_at: "2026-08-15T20:13:00.000Z",
   },
 ];
@@ -289,4 +283,3 @@ export const DEMO_CANONICAL_RUNS: readonly CanonicalRunRecords[] = [
     ],
   },
 ] as const;
-

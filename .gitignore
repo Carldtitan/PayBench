@@ -15,3 +15,7 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+
+# Local browser-review artifacts
+.playwright-cli/
+output/

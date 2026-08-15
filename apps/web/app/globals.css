@@ -915,13 +915,24 @@ h3 {
 
 .study-panel,
 .replay-panel {
+  position: relative;
   padding: 0 17px 17px;
-  border-top: 4px solid var(--harbor);
   border-radius: 0 0 var(--radius) var(--radius);
 }
 
-.replay-panel {
-  border-top-color: var(--brass);
+.study-panel::before,
+.replay-panel::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 4px;
+  background: var(--harbor);
+  content: "";
+}
+
+.replay-panel::before {
+  background: var(--brass);
 }
 
 .study-count {
@@ -1270,11 +1281,13 @@ h3 {
     top: 0;
     width: min(316px, 88vw);
     transform: translateX(-102%);
+    visibility: hidden;
     transition: transform 190ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .run-rail[data-open="true"] {
     transform: translateX(0);
+    visibility: visible;
   }
 
   .rail-heading {

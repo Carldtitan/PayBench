@@ -34,7 +34,7 @@ const activeStages: DashboardStage[] = [
 
 const active: DashboardRunSnapshot = {
   contract_version: "1",
-  job_id: "11111111-1111-4111-8111-111111111111",
+  job_id: "7c59d21a-9ef0-45f3-8958-b8b20f1d84c0",
   founder_label: "Northstar Labs",
   website_url: "https://example.com/pricing",
   job_status: "replay_qa",
@@ -90,7 +90,7 @@ const active: DashboardRunSnapshot = {
 
 const scout: DashboardRunSnapshot = {
   ...active,
-  job_id: "22222222-2222-4222-8222-222222222222",
+  job_id: "03a16b13-9ee4-4d4c-a40b-8b8b133fdcc1",
   founder_label: "Ledgerline",
   website_url: "https://example.org/upgrade",
   job_status: "needs_scout",
@@ -124,7 +124,7 @@ const scout: DashboardRunSnapshot = {
 
 const delivered: DashboardRunSnapshot = {
   ...active,
-  job_id: "33333333-3333-4333-8333-333333333333",
+  job_id: "7c874f29-1b85-4f68-8280-f696af881ae1",
   founder_label: "Sprout Security",
   website_url: "https://example.net/plans",
   job_status: "delivered",

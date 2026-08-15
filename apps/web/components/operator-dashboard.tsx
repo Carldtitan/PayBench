@@ -466,16 +466,16 @@ export function OperatorDashboard() {
   }, [loadRuns]);
 
   useEffect(() => {
+    setEvents([]);
     const demo = demoSnapshots[selectedId];
     if (demo) {
       setSnapshot(demo);
-      setEvents(demoEvents[selectedId] ?? []);
     }
     void loadSnapshot(selectedId);
   }, [loadSnapshot, selectedId]);
 
   useEffect(() => {
-    if (needsAccess || mode === "demo") return;
+    if (needsAccess) return;
     setConnection("connecting");
     const stream = new EventSource(`/api/admin/runs/${encodeURIComponent(selectedId)}/events`);
 
@@ -502,7 +502,7 @@ export function OperatorDashboard() {
     stream.onerror = () => setConnection("polling");
 
     return () => stream.close();
-  }, [loadSnapshot, mode, needsAccess, selectedId]);
+  }, [loadSnapshot, needsAccess, selectedId]);
 
   useEffect(() => {
     if (needsAccess || mode === "demo") return;
@@ -538,7 +538,7 @@ export function OperatorDashboard() {
         <span className="desk-name">Run desk</span>
         <div className="topbar-actions">
           <span className="connection" data-state={mode === "demo" ? "demo" : connection}><i aria-hidden="true" />{mode === "demo" ? "Demo data" : sentenceCase(connection)}</span>
-          <button className="secondary-button refresh-button" type="button" onClick={() => void refresh()} disabled={refreshing}>
+          <button className="secondary-button refresh-button" type="button" onClick={() => void refresh()} disabled={refreshing} aria-label={refreshing ? "Refreshing runs" : "Refresh runs"}>
             <RefreshIcon /> <span>{refreshing ? "Refreshing…" : "Refresh"}</span>
           </button>
         </div>
