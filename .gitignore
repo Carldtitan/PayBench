@@ -1,0 +1,10 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Explicitly local/private hackathon material
+Do not push/
+
+# Common local overrides
+*.local
