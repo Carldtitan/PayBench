@@ -36,6 +36,269 @@ Superserve worker <-----> Supabase artifacts and workflow state
 Report in Supabase -----> Linq delivery
 ```
 
+## Shared implementation contract
+
+Complete this section before Agent A or Agent B starts a workstream. Both agents must import the same types. They must not copy or redefine them.
+
+### Target repository layout
+
+```text
+apps/
+  web/                         # Next.js application
+  worker/                      # Superserve worker
+packages/
+  contracts/                   # Shared schemas, types, enums, and event names
+  db/                          # Typed Supabase repositories
+  paywall/                     # Capture, PaywallSpec, renderer, and quality gates
+  analysis/                    # Study validation, metrics, and report input
+supabase/
+  migrations/                  # Shared database schema and policies
+  seed/                        # Safe local fixtures
+tests/
+  contracts/                   # Payload and state-transition tests
+  fixtures/                    # Captured example pages and webhook payloads
+```
+
+The shared contract phase owns `packages/contracts`, `packages/db`, `supabase/migrations`, and `tests/contracts`. Workstream agents can use these paths but cannot change them without a contract review.
+
+### Canonical identifiers
+
+Use UUIDs for internal records:
+
+- `customer_id`;
+- `conversation_id`;
+- `job_id`;
+- `capture_id`;
+- `variant_id`;
+- `study_id`;
+- `participant_session_id`;
+- `agent_run_id`.
+
+Use random opaque tokens for public links. Store only token hashes in Supabase. Never use a phone number, email address, page label, or Terac worker identifier in a public URL.
+
+### Canonical enums
+
+`packages/contracts` exports these exact values:
+
+```ts
+export const JobStatus = [
+  "awaiting_confirmation",
+  "awaiting_payment",
+  "paid",
+  "capturing",
+  "needs_scout",
+  "spec_ready",
+  "building_variants",
+  "quality_check",
+  "recruiting",
+  "testing",
+  "analyzing",
+  "replay_qa",
+  "report_ready",
+  "delivered",
+  "failed",
+] as const;
+
+export const VariantLabel = ["A", "B"] as const;
+export const ParticipantDecision = ["complete_simulated_purchase", "stop_here"] as const;
+export const QualityStatus = ["pending", "valid", "flagged", "rejected", "technical_failure"] as const;
+export const StudyStatus = ["draft", "recruiting", "complete", "insufficient_sample", "failed"] as const;
+```
+
+Only the orchestration service can change `jobs.status`. A worker returns facts. It does not choose the next job state.
+
+### Shared payloads
+
+All payloads include `contract_version: "1"`. Runtime validation uses Zod schemas from `packages/contracts`.
+
+#### `CaptureJobRequest`
+
+Agent A sends this payload to Agent B:
+
+```ts
+{
+  contract_version: "1";
+  job_id: string;
+  submitted_url: string;
+  artifact_prefix: `jobs/${string}`;
+  callback_url: string;
+  callback_idempotency_key: string;
+}
+```
+
+#### `CaptureJobResult`
+
+Agent B returns one of these results:
+
+```ts
+{
+  contract_version: "1";
+  job_id: string;
+  outcome: "spec_ready" | "needs_scout" | "failed";
+  capture_id?: string;
+  paywall_spec_path?: string;
+  capture_confidence?: number;
+  scout_reason?: string;
+  error_code?: string;
+}
+```
+
+#### `VariantBuildResult`
+
+```ts
+{
+  contract_version: "1";
+  job_id: string;
+  outcome: "variants_ready" | "failed";
+  variant_a_id?: string;
+  variant_b_id?: string;
+  study_url?: string;
+  manifest_path?: string;
+  quality_summary_path?: string;
+  error_code?: string;
+}
+```
+
+The manifest locks the source facts, hypothesis, component operations, artifact checksums, and renderer version.
+
+#### `StudyResult`
+
+```ts
+{
+  contract_version: "1";
+  job_id: string;
+  study_id: string;
+  outcome: "complete" | "insufficient_sample" | "failed";
+  valid_a: number;
+  valid_b: number;
+  technical_failures: number;
+  primary_metric: "simulated_purchase_decision_rate";
+  result: "A" | "B" | "no_clear_winner";
+  metrics_path: string;
+  report_input_path: string;
+  error_code?: string;
+}
+```
+
+### Shared HTTP contract
+
+| Method and route | Owner | Caller | Result |
+| --- | --- | --- | --- |
+| `POST /api/webhooks/linq` | Agent A | Linq | Verifies the event and creates or advances a conversation |
+| `POST /api/webhooks/stripe` | Agent A | Stripe | Verifies payment and marks one job paid |
+| `POST /api/jobs/:id/start` | Agent A | Agent A | Sends one `CaptureJobRequest` |
+| `POST /api/worker/callback` | Agent A | Agent B | Accepts a signed shared result payload |
+| `GET /scout/:token` | Agent B | Terac end-user | Shows one capture task and evidence form |
+| `POST /api/scout/:token` | Agent B | Terac end-user | Stores evidence and returns one `PB-SCOUT-` code |
+| `GET /s/:token` | Agent B | Terac end-user | Creates a session and returns one assigned page |
+| `POST /api/studies/:id/events` | Agent B | Study page | Stores allow-listed behavior events |
+| `POST /api/studies/:id/decision` | Agent B | Study page | Stores one decision and the required survey |
+| `GET /r/:token` | Agent A | Founder | Shows one signed report |
+
+Every mutation returns `{ ok, data?, error? }`. Errors use a stable `code` and safe `message`. No route returns a sponsor key, Supabase secret, raw public-link token, or page assignment label.
+
+### Behavior event contract
+
+The study page can send only these event names:
+
+```text
+page_view
+first_interaction
+plan_selected
+primary_action_clicked
+stop_action_clicked
+field_focused
+field_corrected
+validation_error
+back_navigation
+simulated_purchase_completed
+survey_submitted
+technical_error
+```
+
+Each event includes `participant_session_id`, `variant_id`, `event_name`, `event_time`, `sequence_number`, `element_key`, and safe `metadata`. The API rejects unknown names, duplicate sequence numbers, and events sent after session completion.
+
+### Artifact contract
+
+Both workstreams use these private Supabase Storage paths:
+
+```text
+jobs/<job_id>/capture/*
+jobs/<job_id>/spec/paywall-spec-v1.json
+jobs/<job_id>/variants/manifest-v1.json
+jobs/<job_id>/variants/a/*
+jobs/<job_id>/variants/b/*
+jobs/<job_id>/study/metrics-v1.json
+jobs/<job_id>/reports/report-input-v1.json
+jobs/<job_id>/reports/final.html
+```
+
+Each JSON artifact contains `contract_version`, `job_id`, `created_at`, and `checksum`. Buckets stay private. Agents exchange object paths, not permanent public URLs.
+
+### Authentication and idempotency contract
+
+- Linq webhooks use the raw body and Linq signature verification.
+- Stripe webhooks use the raw body and Stripe signature verification.
+- Worker callbacks use `WORKER_CALLBACK_SECRET`, a timestamp, and an HMAC signature.
+- Public report, scout, and study links use signed opaque tokens with expiration.
+- Every webhook and callback has a provider event ID or idempotency key.
+- Supabase enforces one record for each provider event ID or idempotency key.
+- A repeated valid request returns the first result. It does not repeat the side effect.
+
+### State-transition contract
+
+Agent A owns this state machine. Agent B can request a transition only through a typed callback.
+
+```text
+awaiting_confirmation -> awaiting_payment -> paid
+paid -> capturing
+capturing -> needs_scout | spec_ready | failed
+needs_scout -> capturing | failed
+spec_ready -> building_variants
+building_variants -> quality_check | failed
+quality_check -> recruiting | building_variants | failed
+recruiting -> testing
+testing -> analyzing | failed
+analyzing -> replay_qa | failed
+replay_qa -> report_ready | failed
+report_ready -> delivered
+```
+
+The transition service records the old state, new state, actor, reason, and time. An invalid transition returns `INVALID_JOB_TRANSITION` and changes nothing.
+
+### Contract fixtures
+
+The shared phase creates these safe fixtures:
+
+- one valid Linq inbound event;
+- one duplicate Linq event;
+- one valid Stripe `checkout.session.completed` event;
+- one duplicate Stripe event;
+- one successful capture result;
+- one `needs_scout` capture result;
+- one valid variant manifest;
+- one valid A session and one valid B session;
+- one `stop_here` decision;
+- one technical failure;
+- one complete study result;
+- one `no_clear_winner` report input.
+
+### Shared contract definition of done
+
+The split can start only when all items are true:
+
+1. The shared Zod schemas compile.
+2. The first Supabase migration applies to an empty local database.
+3. Generated database types match the migration.
+4. Contract tests accept every valid fixture.
+5. Contract tests reject invalid enums, signatures, transitions, and duplicate events.
+6. A mock Agent A sends `CaptureJobRequest` to a mock Agent B.
+7. A mock Agent B returns each result type to the Agent A callback.
+8. CI runs type-checking and contract tests.
+9. Both agents use the same frozen commit SHA.
+
+After this point, a contract change needs one written change note. The note lists the schema change, migration, fixtures, and effect on both workstreams.
+
 ## Supabase data model
 
 ### `customers`
