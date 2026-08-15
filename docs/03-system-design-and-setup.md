@@ -9,10 +9,10 @@ PayBench uses five runtime parts.
 | Web app and API | Next.js with TypeScript on Vercel | Intake, reports, Stripe and Linq webhooks, and study telemetry |
 | Database and storage | Supabase | Durable workflow state, memory, behavior events, screenshots, and reports |
 | Worker | Superserve | Browser capture, specification extraction, page rendering, and isolated execution |
-| Model | OpenAI multimodal model | Structured page understanding and constrained change planning |
+| Model | Anthropic Claude Sonnet 4.6 | Structured page understanding and constrained change planning |
 | Human testing | Terac | Scout fallback and participant evaluation |
 
-Supabase, OpenAI, and Vercel are not hackathon sponsors. They are required infrastructure. The sponsor products remain visible in the core path.
+Supabase, Anthropic, and Vercel are not hackathon sponsors. They are required infrastructure. The sponsor products remain visible in the core path.
 
 ## Runtime flow
 
@@ -109,64 +109,140 @@ Only the orchestration service can change `jobs.status`. A worker returns facts.
 
 ### Shared payloads
 
-All payloads include `contract_version: "1"`. Runtime validation uses Zod schemas from `packages/contracts`.
+Runtime validation uses Zod schemas from `packages/contracts`. Agent A sends commands. Agent B sends callbacks.
+
+Every command uses this envelope:
+
+```ts
+type WorkerCommand<T> = {
+  contract_version: "1";
+  request_id: string;
+  job_id: string;
+  command_type: "capture_job" | "build_variants" | "start_study" | "run_replay_qa";
+  callback_url: string;
+  payload: T;
+};
+```
+
+Every command gets a new `request_id`. Retrying the same command keeps the same `request_id`.
+
+Every callback uses this envelope:
+
+```ts
+type WorkerCallback<T> = {
+  contract_version: "1";
+  callback_id: string;
+  request_id: string;
+  job_id: string;
+  result_type:
+    | "capture_result"
+    | "scout_evidence_accepted"
+    | "variant_build_result"
+    | "study_started"
+    | "study_result"
+    | "replay_qa_result";
+  payload: T;
+};
+```
+
+Every callback gets a new `callback_id`. Agent A uses `callback_id` as the callback idempotency key. Agent A uses `request_id` to match the result to the command.
 
 #### `CaptureJobRequest`
 
-Agent A sends this payload to Agent B:
-
 ```ts
-{
-  contract_version: "1";
-  job_id: string;
+type CaptureJobRequest = WorkerCommand<{
   submitted_url: string;
   artifact_prefix: `jobs/${string}`;
-  callback_url: string;
-  callback_idempotency_key: string;
-}
+  mode: "automatic" | "with_scout_evidence";
+  scout_evidence_path?: string;
+}>;
 ```
 
 #### `CaptureJobResult`
 
-Agent B returns one of these results:
-
 ```ts
-{
-  contract_version: "1";
-  job_id: string;
+type CaptureJobResult = WorkerCallback<{
   outcome: "spec_ready" | "needs_scout" | "failed";
   capture_id?: string;
   paywall_spec_path?: string;
   capture_confidence?: number;
+  scout_task_id?: string;
+  scout_url?: string;
   scout_reason?: string;
   error_code?: string;
-}
+}>;
+```
+
+#### `ScoutEvidenceAccepted`
+
+```ts
+type ScoutEvidenceAccepted = WorkerCallback<{
+  scout_task_id: string;
+  scout_evidence_path: string;
+  confirmation_code_hash: string;
+}>;
+```
+
+Agent A responds with a new `CaptureJobRequest`. It sets `mode` to `with_scout_evidence` and includes `scout_evidence_path`.
+
+#### `VariantBuildRequest`
+
+```ts
+type VariantBuildRequest = WorkerCommand<{
+  paywall_spec_path: string;
+  artifact_prefix: `jobs/${string}/variants`;
+  hypothesis_limit: 1;
+}>;
 ```
 
 #### `VariantBuildResult`
 
 ```ts
-{
-  contract_version: "1";
-  job_id: string;
+type VariantBuildResult = WorkerCallback<{
   outcome: "variants_ready" | "failed";
   variant_a_id?: string;
   variant_b_id?: string;
+  preview_a_path?: string;
+  preview_b_path?: string;
   study_url?: string;
   manifest_path?: string;
   quality_summary_path?: string;
   error_code?: string;
-}
+}>;
 ```
 
 The manifest locks the source facts, hypothesis, component operations, artifact checksums, and renderer version.
 
+#### `StudyStartRequest`
+
+```ts
+type StudyStartRequest = WorkerCommand<{
+  manifest_path: string;
+  study_url: string;
+  target_participants: number;
+  minimum_valid_per_variant: number;
+  assignment_mode: "balanced_random";
+  primary_metric: "simulated_purchase_decision_rate";
+  simulated_budget: string;
+}>;
+```
+
+#### `StudyStarted`
+
+```ts
+type StudyStarted = WorkerCallback<{
+  outcome: "started" | "failed";
+  study_id?: string;
+  terac_study_id?: string;
+  study_url?: string;
+  error_code?: string;
+}>;
+```
+
 #### `StudyResult`
 
 ```ts
-{
-  contract_version: "1";
-  job_id: string;
+type StudyResult = WorkerCallback<{
   study_id: string;
   outcome: "complete" | "insufficient_sample" | "failed";
   valid_a: number;
@@ -177,7 +253,28 @@ The manifest locks the source facts, hypothesis, component operations, artifact 
   metrics_path: string;
   report_input_path: string;
   error_code?: string;
-}
+}>;
+```
+
+#### `ReplayQaRequest`
+
+```ts
+type ReplayQaRequest = WorkerCommand<{
+  preview_a_path: string;
+  preview_b_path: string;
+  report_input_path: string;
+}>;
+```
+
+#### `ReplayQaResult`
+
+```ts
+type ReplayQaResult = WorkerCallback<{
+  outcome: "passed" | "failed";
+  replay_run_url?: string;
+  findings_path?: string;
+  error_code?: string;
+}>;
 ```
 
 ### Shared HTTP contract
@@ -266,6 +363,18 @@ report_ready -> delivered
 
 The transition service records the old state, new state, actor, reason, and time. An invalid transition returns `INVALID_JOB_TRANSITION` and changes nothing.
 
+| Accepted result | Agent A action |
+| --- | --- |
+| `CaptureJobResult: needs_scout` | Move `capturing -> needs_scout` and wait for `ScoutEvidenceAccepted` |
+| `ScoutEvidenceAccepted` | Move `needs_scout -> capturing` and send a scout-backed `CaptureJobRequest` |
+| `CaptureJobResult: spec_ready` | Move `capturing -> spec_ready -> building_variants` and send `VariantBuildRequest` |
+| `VariantBuildResult: variants_ready` | Move `building_variants -> quality_check -> recruiting` and send `StudyStartRequest` |
+| `StudyStarted: started` | Move `recruiting -> testing` |
+| `StudyResult: complete` | Move `testing -> analyzing -> replay_qa` and send `ReplayQaRequest` |
+| `StudyResult: insufficient_sample` | Follow the same report path and force `no_clear_winner` |
+| `ReplayQaResult: passed` | Move `replay_qa -> report_ready` |
+| Any terminal `failed` result | Move the current job to `failed` with its stable error code |
+
 ### Contract fixtures
 
 The shared phase creates these safe fixtures:
@@ -276,11 +385,15 @@ The shared phase creates these safe fixtures:
 - one duplicate Stripe event;
 - one successful capture result;
 - one `needs_scout` capture result;
+- one accepted scout-evidence callback;
+- one variant-build request and result;
 - one valid variant manifest;
+- one study-start request and started callback;
 - one valid A session and one valid B session;
 - one `stop_here` decision;
 - one technical failure;
 - one complete study result;
+- one Replay QA request and passed result;
 - one `no_clear_winner` report input.
 
 ### Shared contract definition of done
@@ -292,12 +405,22 @@ The split can start only when all items are true:
 3. Generated database types match the migration.
 4. Contract tests accept every valid fixture.
 5. Contract tests reject invalid enums, signatures, transitions, and duplicate events.
-6. A mock Agent A sends `CaptureJobRequest` to a mock Agent B.
-7. A mock Agent B returns each result type to the Agent A callback.
+6. A mock Agent A sends every shared command type to a mock Agent B.
+7. A mock Agent B returns every shared callback type to the Agent A callback.
 8. CI runs type-checking and contract tests.
 9. Both agents use the same frozen commit SHA.
 
 After this point, a contract change needs one written change note. The note lists the schema change, migration, fixtures, and effect on both workstreams.
+
+### Contract change note 1
+
+The first split review found missing stage commands. Contract version `1` now includes `VariantBuildRequest`, `StudyStartRequest`, `ReplayQaRequest`, `ScoutEvidenceAccepted`, `StudyStarted`, and `ReplayQaResult`.
+
+- **Schema effect:** add the new Zod command and callback schemas. Add `request_id`, `callback_id`, `command_type`, and `result_type` to their envelopes.
+- **Migration effect:** no new product table is required. Store command requests and callbacks in `agent_runs` and `webhook_events`.
+- **Fixture effect:** add one valid fixture for each new command and callback.
+- **Agent A effect:** send each stage command and match callbacks by `request_id`.
+- **Agent B effect:** accept each stage command and use a unique `callback_id` for every callback.
 
 ## Supabase data model
 
@@ -447,6 +570,10 @@ Do not store a phone number in clear text unless the Linq integration requires i
 
 - `id`
 - `job_id`
+- `request_id`
+- `callback_id`
+- `command_type`
+- `result_type`
 - `stage`
 - `model`
 - `input_artifact_paths`
@@ -456,6 +583,8 @@ Do not store a phone number in clear text unless the Linq integration requires i
 - `error_code`
 - `started_at`
 - `completed_at`
+
+Use a unique constraint on `request_id`. Use a second unique constraint on non-null `callback_id`.
 
 ### `webhook_events`
 
@@ -555,7 +684,7 @@ For each paid job:
 
 1. Create a sandbox with `job_id` metadata.
 2. Save the sandbox ID before running commands.
-3. Bind OpenAI and Supabase credentials as Superserve secrets.
+3. Bind Anthropic and Supabase credentials as Superserve secrets.
 4. Capture the target page.
 5. Write artifacts to Supabase.
 6. Generate and validate A and B.
@@ -596,8 +725,8 @@ The updated `.env.example` is the source of truth. Required new infrastructure i
 | `SUPABASE_SECRET_KEY` | Now | Supabase Settings > API Keys; backend only |
 | `SUPABASE_PROJECT_REF` | For migrations | Supabase project settings |
 | `SUPABASE_ACCESS_TOKEN` | For CLI setup | Supabase account access tokens |
-| `OPENAI_API_KEY` | Now | OpenAI API key page |
-| `OPENAI_MODEL` | Now | A current multimodal model available to the account |
+| `ANTHROPIC_API_KEY` | Now | Anthropic Console API Keys page; backend only |
+| `ANTHROPIC_MODEL` | Now | `claude-sonnet-4-6` by default; current Claude models support image input |
 | `APP_SIGNING_SECRET` | Now | Generate locally as a random 32-byte value |
 | `WORKER_CALLBACK_SECRET` | Now | Generate locally as a separate random 32-byte value |
 
@@ -663,7 +792,7 @@ Use `REPLAY_QA_API_TOKEN` for the sponsor QA loop.
 4. Copy the Supabase URL, publishable key, and secret key.
 5. Create the private `paybench-artifacts` bucket.
 6. Create the database tables and RLS policies.
-7. Create the OpenAI API key.
+7. Create the Anthropic API key.
 8. Generate `APP_SIGNING_SECRET` and `WORKER_CALLBACK_SECRET`.
 9. Build the `paybench-browser` Superserve template.
 10. Build the Next.js intake, report, and webhook routes.
@@ -675,29 +804,156 @@ Use `REPLAY_QA_API_TOKEN` for the sponsor QA loop.
 16. Launch the Terac study.
 17. Fix Replay findings and rerun QA.
 
-## Build order
+## Parallel implementation workstreams
 
-### Milestone 1: paid intake
+The shared contract must pass its definition of done first. Then Agent A and Agent B work in parallel from the same contract commit.
 
-- Linq receives a URL.
-- Supabase creates a job.
-- Linq sends the job-specific Payment Link.
-- Stripe webhook marks the job paid.
+## Workstream A — control plane
 
-### Milestone 2: capture and variants
+Agent A can complete this workstream with the shared fixtures and a mock Agent B adapter.
 
-- Superserve captures one public test website.
-- PayBench creates `PaywallSpec`.
-- Renderer builds working A and B pages.
-- Quality gates pass on desktop and mobile.
+### Agent A owned paths
 
-### Milestone 3: human study
+```text
+apps/web/app/api/webhooks/linq/**
+apps/web/app/api/webhooks/stripe/**
+apps/web/app/api/jobs/**
+apps/web/app/api/worker/callback/**
+apps/web/app/r/**
+apps/web/src/server/linq/**
+apps/web/src/server/stripe/**
+apps/web/src/server/orchestration/**
+apps/web/src/server/reports/**
+apps/web/src/server/experiment-engine/**
+tests/workstream-a/**
+```
 
-- Terac posts the neutral end-user task with one signed study link.
-- PayBench assigns each end-user to one page with a stored, balanced random assignment.
-- A one-use completion code connects the Terac submission to valid server telemetry.
-- Telemetry and explanations reach Supabase.
-- Invalid sessions are separated from valid sessions.
+Agent A imports `packages/contracts` and `packages/db`. Agent A does not change shared schemas or migrations during the workstream.
+
+### Agent A inputs
+
+- verified Linq inbound events;
+- verified Stripe payment events;
+- `CaptureJobResult` callbacks;
+- `ScoutEvidenceAccepted` callbacks;
+- `VariantBuildResult` callbacks;
+- `StudyStarted` callbacks;
+- `StudyResult` and `report-input-v1.json`;
+- `ReplayQaResult` callbacks;
+- shared contract fixtures.
+
+### Agent A outputs
+
+- one durable founder conversation;
+- one job linked to the submitted URL;
+- one job-specific Payment Link URL;
+- one idempotent paid state;
+- one `CaptureJobRequest`;
+- one `VariantBuildRequest`;
+- one `StudyStartRequest`;
+- one `ReplayQaRequest`;
+- accepted signed worker results;
+- one final signed report URL;
+- one compliant Linq delivery message.
+
+### Agent A must not own
+
+- browser capture;
+- `PaywallSpec` creation;
+- page rendering;
+- Terac scout or participant pages;
+- participant assignment;
+- study events or analysis;
+- Replay execution.
+
+### Agent A mock for Workstream B
+
+Create an `ExperimentEngineClient` interface with two implementations:
+
+1. `MockExperimentEngineClient` reads shared fixtures and sends valid callbacks.
+2. `HttpExperimentEngineClient` starts the real Superserve workflow.
+
+Both implementations accept every shared `WorkerCommand`. The application selects one implementation with configuration. Business logic must not know which implementation is active.
+
+### Agent A ordered tasks
+
+1. Scaffold the owned Next.js routes and server modules.
+2. Validate required environment variables when the server starts.
+3. Connect the shared typed Supabase repositories.
+4. Implement the Linq webhook with raw-body signature verification.
+5. Store inbound messages once by Linq event ID.
+6. Parse and validate one public `http` or `https` website URL.
+7. Create the founder, conversation, and job records in one transaction.
+8. Send the link-free confirmation reply.
+9. Send the Payment Link only after the founder replies `YES`.
+10. Append `client_reference_id=<job_id>` to the one submitted Payment Link.
+11. Implement the Stripe webhook with raw-body signature verification.
+12. Mark the job paid only for a successful matching Checkout Session.
+13. Send one `CaptureJobRequest` after the first valid payment event.
+14. Implement the job transition service from the shared state machine.
+15. Verify worker callback HMAC, timestamp, payload schema, and idempotency key.
+16. Apply each valid result to the job state without repeating side effects.
+17. Send `VariantBuildRequest` after a valid `spec_ready` result.
+18. Send `StudyStartRequest` after valid variants pass quality gates.
+19. Send `ReplayQaRequest` after a complete or insufficient study result.
+20. Read `report-input-v1.json` only after Replay QA passes.
+21. Render the final report without changing metrics.
+22. Create a signed, expiring `/r/:token` report link.
+23. Deliver the report through Linq once.
+24. Stop all messages after an opt-out.
+25. Add structured logs that contain IDs and error codes, not secrets or message contents.
+
+### Agent A tests
+
+- valid, invalid, and duplicate Linq signatures;
+- `STOP` and clear natural-language opt-outs;
+- invalid and private-network URLs;
+- no link in the first outbound message;
+- correct `client_reference_id` for each job;
+- valid, invalid, delayed, and duplicate Stripe events;
+- payment for the wrong job;
+- each valid and invalid job transition;
+- valid, expired, and duplicate worker callbacks;
+- mock `spec_ready`, `needs_scout`, scout-accepted, variants-ready, study-started, complete-study, and Replay results;
+- signed report access and expiration;
+- exactly one final Linq delivery.
+
+### Agent A checkpoints
+
+1. **Intake checkpoint:** a Linq fixture creates one job and one confirmation reply.
+2. **Revenue checkpoint:** a Stripe fixture moves that job to `paid` exactly once.
+3. **Start checkpoint:** the mock client receives one valid `CaptureJobRequest`.
+4. **Callback checkpoint:** each shared result fixture causes the correct transition and next command.
+5. **Delivery checkpoint:** a complete study fixture creates one report and one Linq message.
+
+### Agent A definition of done
+
+Workstream A is complete when all checkpoints pass without real Agent B code. It must also pass type-checking, contract tests, owned tests, and a clean production build.
+
+## Workstream B — experiment engine
+
+Agent B owns the full experiment engine. The executable plan is in [02-paywall-engine.md](./02-paywall-engine.md#workstream-b--experiment-engine).
+
+Agent B must finish with mock jobs and a mock Agent A callback receiver. Workstream B is not blocked by Linq, Stripe, founder reports, or final delivery.
+
+## Final integration
+
+Start final integration only after both workstreams pass their independent definitions of done.
+
+1. Confirm that both workstreams use the same shared contract commit.
+2. Run all contract tests before connecting real adapters.
+3. Replace Agent A's mock experiment client with `HttpExperimentEngineClient`.
+4. Point Agent B's callbacks to Agent A's signed callback route.
+5. Run one fixture job through capture, variant generation, study, analysis, and report delivery.
+6. Run the `needs_scout` path and submit one valid `PB-SCOUT-` code.
+7. Run one A session, one B session, one `stop_here` decision, and one technical failure.
+8. Confirm that the report metrics equal the stored study artifact.
+9. Run Replay against the integrated app and both generated pages.
+10. Fix all blocking findings and rerun the complete fixture journey.
+11. After Stripe enables live payments, run one real $20 founder purchase.
+12. Launch the real Terac study only after the fixture journey passes.
+
+No workstream can claim that PayBench is complete by itself. Product completion requires the real Agent A adapter, the real Agent B adapter, one paid founder journey, valid Terac evidence, and final Linq delivery.
 
 ## Terac operating rules
 
@@ -709,13 +965,6 @@ There are two different Terac jobs:
 Never rely on a Terac text answer alone. Accept a job only when its one-use PayBench completion code matches a server record. The scout code requires submitted evidence. The participant code requires a loaded assigned page, required behavior events, and completed questions.
 
 Before posting either job, replace every `{{PLACEHOLDER}}`, open the link in a private browser window, complete the task once, and confirm that PayBench issues a valid code.
-
-### Milestone 4: report and delivery
-
-- Analysis returns winner or no clear winner.
-- Report shows evidence and limitations.
-- Linq sends the signed report link.
-- Replay returns a clean result after fixes.
 
 ## Failure handling
 

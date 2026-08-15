@@ -46,6 +46,71 @@ The participant checkout is simulated. PayBench never asks a participant for a r
 
 Stripe supports `client_reference_id` on Payment Links. Stripe returns it in the completed-session webhook. It must contain no sensitive data. See [Stripe Payment Link tracking](https://docs.stripe.com/payment-links/url-parameters).
 
+## Contract-first delivery plan
+
+PayBench uses one shared contract and two independent workstreams.
+
+### Phase 0: shared contract
+
+Complete the shared contract before either workstream starts. The contract fixes:
+
+- database tables and generated types;
+- IDs, enums, and job states;
+- request and result payloads;
+- HTTP routes and route owners;
+- behavior event names;
+- storage paths and artifact formats;
+- signatures, tokens, and idempotency rules;
+- shared fixtures and contract tests.
+
+The complete contract is in [03-system-design-and-setup.md](./03-system-design-and-setup.md#shared-implementation-contract).
+
+### Workstream A: control plane
+
+Agent A owns the founder-facing product:
+
+- Linq intake and replies;
+- job creation and workflow state;
+- Stripe Payment Link tracking and payment webhook;
+- the Superserve start request;
+- signed worker callbacks;
+- report assembly and signed report page;
+- final Linq delivery.
+
+Agent A uses mock experiment results until Workstream B is ready.
+
+### Workstream B: experiment engine
+
+Agent B owns the research system:
+
+- Superserve capture worker;
+- brand and paywall extraction;
+- deterministic A and B page generation;
+- automated quality gates;
+- Terac scout task and evidence form;
+- blinded study page and assignment;
+- behavior events, decisions, and completion codes;
+- study validation and analysis;
+- report-input artifact and Replay QA.
+
+Agent B uses mock jobs and a mock callback receiver until Workstream A is ready.
+
+### The only handoffs
+
+| From | To | Shared object |
+| --- | --- | --- |
+| Agent A | Agent B | `CaptureJobRequest` |
+| Agent B | Agent A | `CaptureJobResult` |
+| Agent B | Agent A | `ScoutEvidenceAccepted` |
+| Agent A | Agent B | `VariantBuildRequest` |
+| Agent B | Agent A | `VariantBuildResult` |
+| Agent A | Agent B | `StudyStartRequest` |
+| Agent B | Agent A | `StudyStarted`, `StudyResult`, and `report-input-v1.json` |
+| Agent A | Agent B | `ReplayQaRequest` |
+| Agent B | Agent A | `ReplayQaResult` |
+
+After Phase 0, both agents can finish their complete workstreams in parallel. Neither agent waits for unfinished code from the other. Final integration connects the real adapters and runs the complete founder journey once.
+
 ## Linq conversation
 
 PayBench is inbound-first. It does not send cold outreach.
@@ -155,7 +220,7 @@ If the evidence is mixed, PayBench reports `No clear winner`. It then recommends
 | Superserve | Sponsor | Run the capture and generation worker in an isolated persistent VM. |
 | Replay | Sponsor | Find technical problems in PayBench and the generated pages. |
 | Supabase | Required, not a sponsor | Store workflow state, events, memory, and report artifacts. |
-| OpenAI | Required, not a sponsor | Convert page evidence into a strict paywall specification and a constrained change plan. |
+| Anthropic | Required, not a sponsor | Convert page evidence into a strict paywall specification and a constrained change plan. |
 | Vercel | Required, not a sponsor | Host the Next.js app on a public HTTPS URL for webhooks and reports. |
 
 ## What PayBench does not build for this hack
