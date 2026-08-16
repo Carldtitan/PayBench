@@ -364,8 +364,8 @@ export async function runPaidJob(
     const pilot = shuffle(["A", "B"] as const as unknown as ("A" | "B")[]);
     const main = shuffle(["A", "A", "A", "A", "B", "B", "B", "B"] as ("A" | "B")[]);
     const slots = [
-      ...pilot.map((variant, index) => ({ study_id: study.id, slot_number: index + 1, cohort: "pilot", variant_label: variant, shuffle_key: randomBytes(4).readUInt32BE() })),
-      ...main.map((variant, index) => ({ study_id: study.id, slot_number: index + 3, cohort: "main", variant_label: variant, shuffle_key: randomBytes(4).readUInt32BE() })),
+      ...pilot.map((variant, index) => ({ study_id: study.id, slot_number: index + 1, cohort: "pilot", variant_label: variant, shuffle_key: randomBytes(4).readUInt32BE() % 2_147_483_647 })),
+      ...main.map((variant, index) => ({ study_id: study.id, slot_number: index + 3, cohort: "main", variant_label: variant, shuffle_key: randomBytes(4).readUInt32BE() % 2_147_483_647 })),
     ];
     await transport.request("POST", "study_assignment_slots", {}, slots, "return=minimal");
 
