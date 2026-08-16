@@ -7,13 +7,18 @@ import {
 } from "../../apps/web/src/server/engine/replay";
 import {
   beginReplayQa,
+  createReplayQaContinuation,
   resumeReplayQa,
   type ReplayQaProject,
+  type ReplayQaRestAdapter,
 } from "../../apps/web/src/server/engine/replay-qa-rest";
+import { resumeReplayQaJob } from "../../apps/web/src/server/engine/replay-resume";
+import type { ReplayResultTransport } from "../../apps/web/src/server/engine/replay-ingestion";
 
 const jobId = "02eb2619-c2ca-4a53-a27a-e401b141e50e";
 const controlUrl = "https://a.preview.superserve.ai/control?signed=control";
 const challengerUrl = "https://b.preview.superserve.ai/challenger?signed=challenger";
+const artifactHash = "a".repeat(64);
 
 const project: ReplayQaProject = {
   id: "replay-project-paybench",
@@ -136,6 +141,28 @@ describe("asynchronous Replay orchestration", () => {
     expect(resumed.result.blocking_findings).toBe(1);
   });
 
+  it("rejects mocked evidence even when all twelve journey fields say passed", async () => {
+    const mocked = replayResult();
+    mocked.provider = "mock";
+    const resumed = await resumeReplayQa(project, {
+      createParticipantProject: vi.fn(),
+      readParticipantProject: vi.fn(async () => mocked),
+    });
+
+    expect(resumed.status).toBe("qa_blocked");
+  });
+
+  it("rejects evidence from a different Replay project", async () => {
+    const wrongProject = replayResult();
+    wrongProject.project_id = "another-replay-project";
+    const resumed = await resumeReplayQa(project, {
+      createParticipantProject: vi.fn(),
+      readParticipantProject: vi.fn(async () => wrongProject),
+    });
+
+    expect(resumed.status).toBe("qa_blocked");
+  });
+
   it("advances only after all twelve journeys have Replay recording evidence", async () => {
     const resumed = await resumeReplayQa(project, {
       createParticipantProject: vi.fn(),
@@ -152,5 +179,79 @@ describe("asynchronous Replay orchestration", () => {
         (evidence) => evidence?.recording_url?.startsWith("https://app.replay.io/recording/"),
       ),
     ).toBe(true);
+  });
+
+  it("resumes the persisted job with one provider read and never opens pilot or Terac", async () => {
+    const calls: Array<{
+      method: "GET" | "POST" | "PATCH";
+      table: string;
+      body?: unknown;
+    }> = [];
+    const checks = {
+      control_matches_source: true,
+      challenger_has_exactly_one_change: true,
+      locked_facts_match: true,
+      desktop_passes: false,
+      mobile_passes: false,
+      purchase_journey_passes: false,
+      stop_journey_passes: false,
+      validation_passes: false,
+      survey_submission_passes: false,
+      assignment_persistence_passes: false,
+      mocked_terac_redirect_passes: false,
+      replay_run_present: false,
+      replay_blocking_findings: 0,
+      pages_approved: false,
+      quote_approved: false,
+      founder_payment_confirmed: true,
+      terac_credit_funding_confirmed: false,
+    };
+    const transport: ReplayResultTransport = {
+      async request(method, table, _query, body) {
+        calls.push({ method, table, body });
+        if (method === "GET" && table === "jobs") {
+          return [{
+            id: jobId,
+            artifact_bundle_hash: artifactHash,
+            status: "qa_replay",
+            payment_status: "paid",
+          }];
+        }
+        if (method === "GET" && table === "agent_runs") return [{ id: "replay-agent-run" }];
+        if (method === "GET" && table === "quality_gate_runs") {
+          return [{ id: "replay-gate", checks_json: checks }];
+        }
+        return [];
+      },
+    };
+    const readParticipantProject = vi.fn(async () => replayResult());
+    const adapter = {
+      readParticipantProject,
+    } as unknown as ReplayQaRestAdapter;
+    const continuation = createReplayQaContinuation({
+      job_id: jobId,
+      artifact_bundle_hash: artifactHash,
+      project,
+      created_at: "2026-08-15T19:00:00.000Z",
+    });
+
+    const resumed = await resumeReplayQaJob(
+      { job_id: jobId, artifact_bundle_hash: artifactHash, continuation },
+      { transport, adapter, secret: "replay-test-secret-that-is-long-enough" },
+    );
+
+    expect(resumed).toMatchObject({
+      status: "awaiting_approvals",
+      completed_journeys: 12,
+      total_journeys: 12,
+      blocking_findings: 0,
+    });
+    expect(readParticipantProject).toHaveBeenCalledOnce();
+    expect(calls.some((call) => call.table.toLowerCase().includes("terac"))).toBe(false);
+    const jobStatuses = calls
+      .filter((call) => call.method === "PATCH" && call.table === "jobs")
+      .map((call) => (call.body as { status?: string } | undefined)?.status);
+    expect(jobStatuses).toEqual(["awaiting_approvals"]);
+    expect(jobStatuses).not.toContain("pilot");
   });
 });
