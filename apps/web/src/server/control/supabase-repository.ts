@@ -149,7 +149,7 @@ export class SupabaseControlRepository implements ControlRepository {
         normalized_url: input.website_url,
         target_customer_description: input.target_customer_description,
         status: input.initial_status,
-        payment_status: input.initial_status === "awaiting_payment" ? "pending" : "unpaid",
+        payment_status: input.initial_status === "paid" ? "paid" : input.initial_status === "awaiting_payment" ? "pending" : "unpaid",
         amount_paid_cents: 0,
         currency: "USD",
       },
@@ -166,6 +166,18 @@ export class SupabaseControlRepository implements ControlRepository {
       limit: "1",
     });
     return row ? controlJob(row) : null;
+  }
+
+  async grantJobAccess(jobId: string): Promise<ControlJob> {
+    const [row] = await this.transport.request(
+      "PATCH",
+      "jobs",
+      { id: `eq.${jobId}`, select: "id,customer_id,submitted_url,normalized_url,target_customer_description,status,payment_status,amount_paid_cents,currency,stripe_checkout_session_id,updated_at" },
+      { status: "paid", payment_status: "paid", amount_paid_cents: 0, updated_at: new Date().toISOString() },
+      "return=representation",
+    );
+    if (!row) throw new ControlError("JOB_NOT_FOUND", 404);
+    return controlJob(row);
   }
 
   async setJobAwaitingPayment(jobId: string): Promise<ControlJob> {

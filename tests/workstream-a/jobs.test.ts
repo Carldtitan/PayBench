@@ -7,7 +7,7 @@ import { validatePublicWebsiteUrl } from "../../apps/web/src/server/control/url"
 const publicResolver = async () => [{ address: "93.184.216.34", family: 4 }];
 
 describe("founder job intake", () => {
-  it("requires a public URL and a useful target-customer description", async () => {
+  it("starts every valid public URL without a payment gate", async () => {
     const repository = new MemoryControlRepository();
     const created = await createFounderJob(
       {
@@ -19,8 +19,9 @@ describe("founder job intake", () => {
     );
 
     expect(created.website_url).toBe("https://example.com/pricing");
-    expect(created.status).toBe("awaiting_payment");
-    expect(new URL(created.payment_url).searchParams.get("client_reference_id")).toBe(created.job_id);
+    expect(created.status).toBe("paid");
+    expect(created.access).toBe("granted");
+    expect(created).not.toHaveProperty("payment_url");
     expect((await repository.getJob(created.job_id))?.target_customer_description).toContain("Operations leads");
   });
 
@@ -35,4 +36,3 @@ describe("founder job intake", () => {
     ).rejects.toMatchObject({ code: "WEBSITE_URL_PRIVATE_ADDRESS" });
   });
 });
-

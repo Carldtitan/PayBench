@@ -1,7 +1,9 @@
+import { after } from "next/server";
 import { handleLinqWebhook } from "../../../../src/server/control/linq";
 import { deliverReplyToHealthyLinqChat } from "../../../../src/server/control/linq-report";
 import { getControlRepository } from "../../../../src/server/control/supabase-repository";
 import { ControlError } from "../../../../src/server/control/types";
+import { runPaidJob } from "../../../../src/server/orchestration/paid-job";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,6 +31,12 @@ export async function POST(request: Request): Promise<Response> {
         },
       },
     );
+    if (result.start_job_id) {
+      const jobId = result.start_job_id;
+      after(async () => {
+        await runPaidJob(jobId);
+      });
+    }
     return Response.json({
       received: true,
       duplicate: result.duplicate,

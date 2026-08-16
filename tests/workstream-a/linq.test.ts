@@ -37,7 +37,7 @@ function signedMessage(id: string, text: string, health = "HEALTHY") {
 }
 
 describe("Linq inbound conversation", () => {
-  it("collects URL and target customer, confirms without a link, then returns the job-bound payment link", async () => {
+  it("collects URL and target customer, then starts after confirmation without payment", async () => {
     const repository = new MemoryControlRepository();
     const first = signedMessage("msg_1", "https://example.com/pricing");
     const askTarget = await handleLinqWebhook(first.body, first.headers, repository, { secret, resolver, paymentLink: "https://buy.stripe.com/paybench", nowSeconds: now });
@@ -49,10 +49,11 @@ describe("Linq inbound conversation", () => {
     expect(confirmation.reply).not.toMatch(/https?:\/\//);
 
     const third = signedMessage("msg_3", "YES");
-    const payment = await handleLinqWebhook(third.body, third.headers, repository, { secret, resolver, paymentLink: "https://buy.stripe.com/paybench", nowSeconds: now });
-    expect(payment.reply).toContain("https://buy.stripe.com/");
+    const started = await handleLinqWebhook(third.body, third.headers, repository, { secret, resolver, paymentLink: "https://buy.stripe.com/paybench", nowSeconds: now });
+    expect(started.reply).toBe("Your PayBench test has started.");
+    expect(started.start_job_id).toBeTruthy();
     const conversation = await repository.getConversation("chat_demo");
-    expect(conversation?.phase.name).toBe("awaiting_payment");
+    expect(conversation?.phase.name).toBe("paid");
   });
 
   it("handles natural opt-outs and blocks reply intents on unhealthy chats", async () => {

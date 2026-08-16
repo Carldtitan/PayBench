@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 const STAGES = [
-  { label: "Source captured", actor: "Superserve", detail: "Linear pricing page secured" },
-  { label: "A/B built", actor: "PayBench", detail: "One controlled change" },
-  { label: "Replay QA", actor: "Replay", detail: "12 journeys · 0 blockers" },
-  { label: "Terac pilot posted", actor: "Terac", detail: "2 pilot jobs · 1A + 1B" },
-  { label: "10 sessions", actor: "Terac", detail: "5A · 5B · $5 each" },
-  { label: "Report ready", actor: "PayBench", detail: "Directional result" },
-  { label: "Linq delivery", actor: "Linq", detail: "Founder link delivered" },
+  { label: "Source captured", actor: "Superserve", detail: "Linear pricing page secured", evidence: ["Basic · $10 per user / month", "Business · $16 per user / month", "Yearly billing · desktop + mobile captured"] },
+  { label: "A/B built", actor: "PayBench", detail: "One controlled change", evidence: ["A reproduces the captured offer", "B emphasizes existing customer proof", "Prices, terms and product claims remain locked"] },
+  { label: "Replay QA", actor: "Replay", detail: "12 journeys · 0 blockers", evidence: ["A + B · desktop and mobile", "Purchase, stop, validation and survey passed", "Assignment refresh and redirect passed"] },
+  { label: "Terac pilot posted", actor: "Terac", detail: "2 pilot jobs · 1A + 1B", evidence: ["Pilot A · 1 slot · $5", "Pilot B · 1 slot · $5", "Target: product teams evaluating issue trackers"] },
+  { label: "10 sessions", actor: "Terac", detail: "5A · 5B · $5 each", evidence: ["A · 2 continued · 3 stopped", "B · 4 continued · 1 stopped", "Median decision time · A 41s · B 29s"] },
+  { label: "Report ready", actor: "PayBench", detail: "Directional result", evidence: ["B produced 2 more continue decisions", "Participants found customer proof reassuring", "Directional evidence · not statistically significant"] },
+  { label: "Linq delivery", actor: "Linq", detail: "Founder link delivered", evidence: ["Founder-initiated chat · HEALTHY", "Directional report link delivered once", "Delivery receipt recorded"] },
 ] as const;
 
 type RunState = "idle" | "running" | "complete";
@@ -17,27 +17,17 @@ type RunState = "idle" | "running" | "complete";
 export function LinearDemoRun() {
   const [runState, setRunState] = useState<RunState>("idle");
   const [stageIndex, setStageIndex] = useState(-1);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => () => {
-    if (timer.current) clearInterval(timer.current);
-  }, []);
-
   function run() {
-    if (timer.current) clearInterval(timer.current);
     setRunState("running");
     setStageIndex(0);
-    let next = 0;
-    timer.current = setInterval(() => {
-      next += 1;
-      if (next >= STAGES.length) {
-        if (timer.current) clearInterval(timer.current);
-        timer.current = null;
-        setRunState("complete");
-        return;
-      }
-      setStageIndex(next);
-    }, 640);
+  }
+
+  function next() {
+    if (stageIndex >= STAGES.length - 1) {
+      setRunState("complete");
+      return;
+    }
+    setStageIndex((current) => current + 1);
   }
 
   const active = stageIndex >= 0 ? STAGES[stageIndex] : null;
@@ -64,8 +54,8 @@ export function LinearDemoRun() {
             <a href="https://linear.app/pricing" target="_blank" rel="noreferrer">https://linear.app/pricing <span aria-hidden="true">↗</span></a>
             <nav className="source-pages" aria-label="Sample variants"><a href="/demo/linear/a">View A</a><a href="/demo/linear/b">View B</a></nav>
           </div>
-          <button type="button" onClick={run} disabled={runState === "running"}>
-            {runState === "running" ? "Running…" : runState === "complete" ? "Run again" : "Run Linear test"}
+          <button type="button" onClick={runState === "running" ? next : run}>
+            {runState === "running" ? (stageIndex === STAGES.length - 1 ? "Finish run" : "Next evidence") : runState === "complete" ? "Run again" : "Run Linear test"}
           </button>
         </section>
 
@@ -112,6 +102,7 @@ export function LinearDemoRun() {
                 <span className="activity-dot" aria-hidden="true" />
                 <h2>{active?.label}</h2>
                 <p>{active?.detail}</p>
+                <ul className="evidence-list">{active?.evidence.map((item) => <li key={item}>✓ <span>{item}</span></li>)}</ul>
                 {stageIndex === 1 ? <div className="mini-variants"><span>A</span><span>B</span></div> : null}
                 {stageIndex === 4 ? <div className="session-strip" aria-label="Ten sessions"><span>A</span><span>B</span><span>A</span><span>B</span><span>A</span><span>B</span><span>A</span><span>B</span><span>A</span><span>B</span></div> : null}
               </div>
@@ -147,6 +138,7 @@ export function LinearDemoRun() {
         .run-track{position:absolute;top:0;right:0;left:0;height:5px;background:color-mix(in oklch,var(--white) 12%,var(--harbor-deep))}.run-track span{display:block;width:100%;height:100%;transform-origin:left;background:var(--brass);transition:transform 580ms cubic-bezier(.16,1,.3,1)}
         .ready-state,.working-state{max-width:460px;text-align:center}.linear-mark{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 24px;border-radius:14px;background:var(--white);color:var(--harbor-deep);font-size:var(--size-lg);font-weight:840;box-shadow:6px 7px 0 var(--brass)}
         .ready-state h2,.working-state h2{color:var(--white);font-size:var(--size-xl);font-weight:760;letter-spacing:-.025em}.ready-state p,.working-state p{max-width:38ch;margin:10px auto 0;color:color-mix(in oklch,var(--white) 72%,var(--harbor-deep));font-size:var(--size-sm)}
+        .evidence-list{display:grid;gap:8px;margin:24px 0 0;padding:0;text-align:left;list-style:none}.evidence-list li{min-height:0;display:flex;grid-template-columns:none;gap:9px;padding:9px 11px;border:1px solid color-mix(in oklch,var(--white) 14%,var(--harbor-deep));border-radius:8px;color:var(--brass);background:color-mix(in oklch,var(--white) 6%,var(--harbor-deep));font-size:var(--size-xs)}.evidence-list span{color:var(--white)}
         .working-state{animation:cue-arrive 480ms cubic-bezier(.16,1,.3,1)}.activity-dot{display:block;width:13px;height:13px;margin:0 auto 25px;border-radius:50%;background:var(--brass);box-shadow:2px 3px 9px color-mix(in oklch,var(--brass) 55%,transparent)}
         .mini-variants{display:flex;justify-content:center;gap:12px;margin-top:28px}.mini-variants span{display:grid;place-items:center;width:72px;height:54px;border-radius:9px;background:var(--paper);color:var(--harbor);font-size:var(--size-md);font-weight:800}.mini-variants span:last-child{background:var(--brass);color:var(--harbor-deep)}
         .session-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin-top:28px}.session-strip span{display:grid;place-items:center;width:31px;height:31px;border-radius:50%;background:var(--harbor);font-size:var(--size-xxs);font-weight:780}.session-strip span:nth-child(even){background:var(--brass);color:var(--harbor-deep)}

@@ -58,7 +58,7 @@ export interface CaptureStartRecord {
 export interface CreateJobInput {
   website_url: string;
   target_customer_description: string;
-  initial_status: "awaiting_confirmation" | "awaiting_payment";
+  initial_status: "awaiting_confirmation" | "awaiting_payment" | "paid";
   customer_id?: string;
 }
 
@@ -73,6 +73,7 @@ export interface ClaimLinqOutboundInput {
 export interface ControlRepository {
   createJob(input: CreateJobInput): Promise<ControlJob>;
   getJob(jobId: string): Promise<ControlJob | null>;
+  grantJobAccess(jobId: string): Promise<ControlJob>;
   setJobAwaitingPayment(jobId: string): Promise<ControlJob>;
   confirmPaymentAndEnqueueCapture(input: {
     job_id: string;

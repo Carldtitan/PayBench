@@ -143,8 +143,8 @@ export async function runPaidJob(
     limit: "1",
   });
   if (!job) throw new Error("JOB_NOT_FOUND");
-  if (job.payment_status !== "paid" || Number(job.amount_paid_cents) !== 2_000) {
-    throw new Error("FOUNDER_PAYMENT_NOT_CONFIRMED");
+  if (job.payment_status !== "paid") {
+    throw new Error("FOUNDER_ACCESS_NOT_GRANTED");
   }
   const [existingStudy] = await transport.request("GET", "studies", {
     select: "id,artifact_bundle_hash",

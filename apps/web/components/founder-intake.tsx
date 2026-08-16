@@ -25,7 +25,6 @@ const styles: Record<string, CSSProperties> = {
 
 interface CreatedJob {
   job_id: string;
-  payment_url: string;
 }
 
 export function FounderIntake() {
@@ -60,16 +59,16 @@ export function FounderIntake() {
       </nav>
       <main style={styles.main}>
         <section>
-          <p style={styles.eyebrow}>Checkout study · $20</p>
+          <p style={styles.eyebrow}>Checkout study</p>
           <h1 style={styles.title}>Test the page before customers do.</h1>
           <p style={styles.sub}>One control. One challenger. Ten real end-users. Directional evidence.</p>
         </section>
         <section style={styles.form}>
           {created ? (
             <div style={styles.success}>
-              <p style={styles.eyebrow}>Ready</p>
-              <h2>Start the test</h2>
-              <a style={styles.link} href={created.payment_url}>Pay $20 with Stripe</a>
+              <p style={styles.eyebrow}>Started</p>
+              <h2>Your test is running.</h2>
+              <a style={styles.link} href="/admin">Open run desk</a>
             </div>
           ) : (
             <form onSubmit={submit} style={{ display: "contents" }}>

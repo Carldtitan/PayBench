@@ -27,7 +27,7 @@ export class MemoryControlRepository implements ControlRepository {
       website_url: input.website_url,
       target_customer_description: input.target_customer_description,
       status: input.initial_status,
-      payment_status: "unpaid",
+      payment_status: input.initial_status === "paid" ? "paid" : "unpaid",
       amount_paid_cents: 0,
       currency: "USD",
       updated_at: now,
@@ -39,6 +39,10 @@ export class MemoryControlRepository implements ControlRepository {
   async getJob(jobId: string): Promise<ControlJob | null> {
     const job = this.jobs.get(jobId);
     return job ? { ...job } : null;
+  }
+
+  async grantJobAccess(jobId: string): Promise<ControlJob> {
+    return this.updateJob(jobId, { status: "paid", payment_status: "paid", amount_paid_cents: 0 });
   }
 
   async setJobAwaitingPayment(jobId: string): Promise<ControlJob> {

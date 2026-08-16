@@ -3,7 +3,6 @@ import Linq from "@linqapp/sdk";
 
 import type { HostResolver } from "./url";
 import { validatePublicWebsiteUrl, validateTargetCustomerDescription } from "./url";
-import { paymentLinkForJob } from "./payment-link";
 import type { ControlConversation, ControlRepository } from "./types";
 import { ControlError } from "./types";
 
@@ -18,6 +17,7 @@ interface LinqWebhookResult {
   reply: string | null;
   reply_blocked_reason?: string;
   phase?: string;
+  start_job_id?: string;
 }
 
 export interface LinqInboundReply {
@@ -205,16 +205,16 @@ async function processInbound(
       customer_id: conversation.customer_id,
     });
     await repository.saveConversation({ chat_id: chatId, customer_id: conversation.customer_id, phase: { name: "awaiting_confirmation", job_id: job.id }, inbound_at: now, outbound_at: health === "HEALTHY" ? now : undefined });
-    return healthyReply(`I found ${brandLabel(job.website_url)}. I can test it with people who match that customer for $20. Reply YES to continue.`, health, "awaiting_confirmation");
+    return healthyReply(`I found ${brandLabel(job.website_url)}. I can test it with people who match that customer. Reply YES to continue.`, health, "awaiting_confirmation");
   }
 
   if (conversation.phase.name === "awaiting_confirmation") {
     if (text.trim().toUpperCase() !== "YES") {
       return healthyReply("Reply YES to continue, or send a different website.", health, "awaiting_confirmation");
     }
-    await repository.setJobAwaitingPayment(conversation.phase.job_id);
-    await repository.saveConversation({ chat_id: chatId, customer_id: conversation.customer_id, phase: { name: "awaiting_payment", job_id: conversation.phase.job_id }, inbound_at: now, outbound_at: health === "HEALTHY" ? now : undefined });
-    return healthyReply(`Pay here to start: ${paymentLinkForJob(paymentLink ?? process.env.STRIPE_PAYMENT_LINK_URL, conversation.phase.job_id)}`, health, "awaiting_payment");
+    await repository.grantJobAccess(conversation.phase.job_id);
+    await repository.saveConversation({ chat_id: chatId, customer_id: conversation.customer_id, phase: { name: "paid", job_id: conversation.phase.job_id }, inbound_at: now, outbound_at: health === "HEALTHY" ? now : undefined });
+    return { ...healthyReply("Your PayBench test has started.", health, "paid"), start_job_id: conversation.phase.job_id };
   }
 
   const submittedUrl = extractUrl(text);
@@ -238,7 +238,7 @@ async function processInbound(
   const target = validateTargetCustomerDescription(remainder);
   const job = await repository.createJob({ website_url: websiteUrl, target_customer_description: target, initial_status: "awaiting_confirmation", customer_id: conversation.customer_id });
   await repository.saveConversation({ chat_id: chatId, customer_id: conversation.customer_id, phase: { name: "awaiting_confirmation", job_id: job.id }, inbound_at: now, outbound_at: health === "HEALTHY" ? now : undefined });
-  return healthyReply(`I found ${brandLabel(job.website_url)}. I can test it with people who match that customer for $20. Reply YES to continue.`, health, "awaiting_confirmation");
+  return healthyReply(`I found ${brandLabel(job.website_url)}. I can test it with people who match that customer. Reply YES to continue.`, health, "awaiting_confirmation");
 }
 
 export async function handleLinqWebhook(

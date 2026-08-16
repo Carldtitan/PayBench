@@ -1,6 +1,8 @@
+import { after } from "next/server";
 import { createFounderJob } from "../../../src/server/control/jobs";
 import { getControlRepository } from "../../../src/server/control/supabase-repository";
 import { ControlError } from "../../../src/server/control/types";
+import { runPaidJob } from "../../../src/server/orchestration/paid-job";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -15,6 +17,9 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const data = await createFounderJob(body, await getControlRepository());
+    after(async () => {
+      await runPaidJob(data.job_id);
+    });
     return Response.json({ ok: true, data }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const status = error instanceof ControlError ? error.status : 500;
@@ -22,4 +27,3 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ ok: false, error: { code, message: status >= 500 ? "PayBench is not ready yet" : "Check the website and target customer" } }, { status });
   }
 }
-
