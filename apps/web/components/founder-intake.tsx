@@ -8,6 +8,7 @@ const styles: Record<string, CSSProperties> = {
   nav: { height: 68, display: "flex", alignItems: "center", padding: "0 clamp(20px, 5vw, 72px)", borderBottom: "1px solid var(--line)" },
   brand: { display: "flex", alignItems: "center", gap: 10, fontSize: 15, fontWeight: 760 },
   mark: { width: 32, height: 32, display: "grid", placeItems: "center", borderRadius: 9, color: "white", background: "var(--harbor)", fontSize: 11 },
+  demoLink: { marginLeft: "auto", minHeight: 38, display: "inline-flex", alignItems: "center", padding: "0 14px", borderRadius: 9, color: "white", background: "var(--harbor)", fontSize: 13, fontWeight: 760, textDecoration: "none" },
   main: { width: "min(1120px, 100%)", margin: "0 auto", padding: "clamp(44px, 9vw, 112px) clamp(20px, 5vw, 72px)", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))", gap: "clamp(36px, 8vw, 96px)", alignItems: "start" },
   eyebrow: { margin: "0 0 14px", color: "var(--harbor)", fontSize: 12, fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase" },
   title: { maxWidth: 570, margin: 0, fontSize: "clamp(38px, 6vw, 76px)", lineHeight: .98, fontWeight: 770, letterSpacing: "-.045em" },
@@ -55,6 +56,7 @@ export function FounderIntake() {
     <div style={styles.shell}>
       <nav style={styles.nav}>
         <div style={styles.brand}><span style={styles.mark}>PB</span> PayBench</div>
+        <a style={styles.demoLink} href="/demo/linear">Run Linear test</a>
       </nav>
       <main style={styles.main}>
         <section>
@@ -90,4 +92,3 @@ export function FounderIntake() {
     </div>
   );
 }
-
