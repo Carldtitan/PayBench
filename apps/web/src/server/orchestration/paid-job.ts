@@ -366,6 +366,7 @@ export async function runPaidJob(
     ];
     await transport.request("POST", "study_assignment_slots", {}, slots, "return=minimal");
 
+    await updateJob(transport, jobId, { status: "qa_replay", failure_code: null });
     jobLog(jobId, "replay_qa_started");
     const replayAdapter = dependencies.replay ?? runtimeReplayQaRestAdapter();
     let replayResult: ReplayExecutionResult | undefined;
