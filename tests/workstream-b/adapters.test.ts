@@ -16,7 +16,9 @@ describe("Anthropic structured output", () => {
     const draft = {
       brand: paywallFixture.brand,
       locked_facts: paywallFixture.locked_facts,
-      tree: paywallFixture.tree,
+      headline: paywallFixture.locked_facts.product_name,
+      supporting_copy: paywallFixture.locked_facts.product_details,
+      primary_action_label: "Continue",
     };
     const adapter = new AnthropicStructuredOutputAdapter({
       apiKey: "test-key",
@@ -34,8 +36,15 @@ describe("Anthropic structured output", () => {
       visible_text: "Northstar Growth $29 / month",
       brand_tokens: { primary: "#125f7a" },
     });
-    const outputConfig = requestBody?.output_config as { format?: { type?: unknown; strict?: unknown } };
-    expect(outputConfig.format).toMatchObject({ type: "json_schema", strict: true });
+    const outputConfig = requestBody?.output_config as {
+      format?: {
+        type?: unknown;
+        strict?: unknown;
+        schema?: unknown;
+      };
+    };
+    expect(outputConfig.format).toMatchObject({ type: "json_schema" });
+    expect(JSON.stringify(outputConfig.format?.schema)).not.toMatch(/\$defs|"maxItems"|"maxLength"|"pattern"|"format"/);
     expect(result.tree.type).toBe("PaywallShell");
     expect(result.locked_facts_hash).toMatch(/^[a-f0-9]{64}$/);
   });
