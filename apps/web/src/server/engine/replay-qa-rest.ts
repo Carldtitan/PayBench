@@ -13,6 +13,10 @@ type JsonRecord = Record<string, unknown>;
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 const DEFAULT_BASE_URL = "https://loop-qa.replay.io/api/v1";
+// Keep every serverless invocation comfortably below Vercel's five minute cap.
+// Production orchestration uses the non-blocking begin/resume helpers below;
+// this cap only protects older callers of waitForParticipantProject.
+const MAX_SYNC_POLL_MS = 240_000;
 const SUCCESS_STATUSES = new Set(["passed", "complete", "completed", "success", "succeeded"]);
 const FAILURE_STATUSES = new Set(["failed", "error", "blocked", "cancelled", "canceled"]);
 
@@ -169,6 +173,154 @@ export interface ReplayQaProject {
   };
 }
 
+export interface ReplayQaStartInput {
+  job_id: string;
+  control_url: string;
+  challenger_url: string;
+  journeys: readonly ReplayJourneyId[];
+}
+
+export interface ReplayQaContinuation {
+  version: 1;
+  job_id: string;
+  artifact_bundle_hash: string;
+  project: ReplayQaProject;
+  created_at: string;
+}
+
+export interface ReplayQaLifecycleAdapter {
+  createParticipantProject(input: Pick<ReplayQaStartInput, "job_id" | "control_url" | "challenger_url">): Promise<ReplayQaProject>;
+  readParticipantProject(project: ReplayQaProject): Promise<ReplayExecutionResult>;
+}
+
+export type ReplayQaBeginResult = {
+  status: "qa_pending";
+  project: ReplayQaProject;
+};
+
+export type ReplayQaResumeResult =
+  | { status: "qa_pending"; result: ReplayExecutionResult }
+  | { status: "qa_blocked"; result: ReplayExecutionResult; error_code: "REPLAY_QA_BLOCKED" }
+  | { status: "awaiting_approvals"; result: ReplayExecutionResult };
+
+function replayProjectId(value: unknown): string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{3,200}$/.test(value)) {
+    throw new ReplayGateError("REPLAY_QA_PROJECT_INVALID", "Replay QA project ID is invalid");
+  }
+  return value;
+}
+
+export function parseReplayQaProject(value: unknown, allowedPreviewHosts: readonly string[] = []): ReplayQaProject {
+  const project = record(value);
+  const id = replayProjectId(project.id);
+  const projectUrl = textField(project, ["url"]);
+  if (!projectUrl) throw new ReplayGateError("REPLAY_QA_PROJECT_INVALID", "Replay QA project URL is missing");
+  try {
+    const url = new URL(projectUrl);
+    if (url.protocol !== "https:" || !["qa.replay.io", "loop-qa.replay.io"].includes(url.hostname)) throw new Error("url");
+  } catch {
+    throw new ReplayGateError("REPLAY_QA_PROJECT_INVALID", "Replay QA project URL is invalid");
+  }
+  const targetRows = record(project.targets);
+  const controlRow = record(targetRows.control);
+  const challengerRow = record(targetRows.challenger);
+  const controlUrl = textField(controlRow, ["url"]);
+  const challengerUrl = textField(challengerRow, ["url"]);
+  if (!controlUrl || !challengerUrl) {
+    throw new ReplayGateError("REPLAY_QA_PROJECT_INVALID", "Replay QA project targets are missing");
+  }
+  const targets = assertReplayParticipantTargets(controlUrl, challengerUrl, allowedPreviewHosts);
+  const journeyRows = record(project.journeys);
+  const journeys: ReplayQaProject["journeys"] = {};
+  for (const journey of REPLAY_QA_MATRIX) {
+    const providerId = replayProjectId(journeyRows[journey]);
+    journeys[journey] = providerId;
+  }
+  return {
+    id,
+    url: projectUrl,
+    journeys,
+    targets: {
+      control: { url: targets.control.url.toString(), kind: targets.control.kind },
+      challenger: { url: targets.challenger.url.toString(), kind: targets.challenger.kind },
+    },
+  };
+}
+
+export function createReplayQaContinuation(input: {
+  job_id: string;
+  artifact_bundle_hash: string;
+  project: ReplayQaProject;
+  created_at?: string;
+}): ReplayQaContinuation {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.job_id)) {
+    throw new ReplayGateError("JOB_ID_INVALID", "Replay QA continuation requires a valid job ID");
+  }
+  if (!/^[a-f0-9]{64}$/.test(input.artifact_bundle_hash)) {
+    throw new ReplayGateError("ARTIFACT_HASH_INVALID", "Replay QA continuation requires the frozen artifact bundle hash");
+  }
+  return {
+    version: 1,
+    job_id: input.job_id,
+    artifact_bundle_hash: input.artifact_bundle_hash,
+    project: parseReplayQaProject(input.project),
+    created_at: input.created_at ?? new Date().toISOString(),
+  };
+}
+
+export function parseReplayQaContinuation(value: unknown, allowedPreviewHosts: readonly string[] = []): ReplayQaContinuation {
+  const row = record(value);
+  const continuation = createReplayQaContinuation({
+    job_id: String(row.job_id ?? ""),
+    artifact_bundle_hash: String(row.artifact_bundle_hash ?? ""),
+    project: parseReplayQaProject(row.project, allowedPreviewHosts),
+    created_at: String(row.created_at ?? ""),
+  });
+  if (row.version !== 1 || Number.isNaN(Date.parse(continuation.created_at))) {
+    throw new ReplayGateError("REPLAY_QA_CONTINUATION_INVALID", "Replay QA continuation is invalid");
+  }
+  return continuation;
+}
+
+function assertCompleteMatrix(journeys: readonly ReplayJourneyId[]): void {
+  if (journeys.length !== REPLAY_QA_MATRIX.length || REPLAY_QA_MATRIX.some((journey) => !journeys.includes(journey))) {
+    throw new ReplayGateError("REPLAY_QA_MATRIX_INVALID", "Replay QA requires the complete participant journey matrix");
+  }
+}
+
+/** Start Replay without waiting for an exploration to finish. */
+export async function beginReplayQa(
+  input: ReplayQaStartInput,
+  adapter: ReplayQaLifecycleAdapter,
+): Promise<ReplayQaBeginResult> {
+  assertCompleteMatrix(input.journeys);
+  const project = await adapter.createParticipantProject(input);
+  return { status: "qa_pending", project };
+}
+
+/** Pull provider evidence exactly once. Missing evidence remains pending. */
+export async function resumeReplayQa(
+  project: ReplayQaProject,
+  adapter: ReplayQaLifecycleAdapter,
+): Promise<ReplayQaResumeResult> {
+  const result = await adapter.readParticipantProject(project);
+  if (result.status === "missing") return { status: "qa_pending", result };
+  if (result.provider !== "replay_qa" || result.project_id !== project.id) {
+    return { status: "qa_blocked", result, error_code: "REPLAY_QA_BLOCKED" };
+  }
+  const allPassed = REPLAY_QA_MATRIX.every((journey) => {
+    const evidence = result.evidence?.[journey];
+    return result.journeys[journey] === "passed"
+      && evidence?.status === "passed"
+      && typeof evidence.recording_url === "string"
+      && evidence.recording_url.startsWith("https://app.replay.io/recording/");
+  });
+  if (result.status !== "passed" || result.blocking_findings > 0 || !allPassed) {
+    return { status: "qa_blocked", result, error_code: "REPLAY_QA_BLOCKED" };
+  }
+  return { status: "awaiting_approvals", result };
+}
+
 export class ReplayQaRestAdapter implements ReplayExecutionAdapter {
   private readonly token: string;
   private readonly baseUrl: string;
@@ -192,7 +344,7 @@ export class ReplayQaRestAdapter implements ReplayExecutionAdapter {
     this.baseUrl = baseUrl.toString().replace(/\/$/, "");
     this.fetcher = options.fetcher ?? fetch;
     this.pollIntervalMs = options.pollIntervalMs ?? 5_000;
-    this.timeoutMs = options.timeoutMs ?? 12 * 60_000;
+    this.timeoutMs = Math.max(0, Math.min(options.timeoutMs ?? 0, MAX_SYNC_POLL_MS));
     this.budget = options.budget ?? 20;
     this.finishedWebhookUrl = options.finishedWebhookUrl;
     this.allowedPreviewHosts = options.allowedPreviewHosts ?? [];
@@ -272,7 +424,59 @@ export class ReplayQaRestAdapter implements ReplayExecutionAdapter {
     };
   }
 
-  private async readEvidence(project: ReplayQaProject): Promise<ReplayExecutionResult> {
+  /**
+   * Rebuild continuation metadata from Replay itself. This is used when a
+   * serverless invocation ended after creating the provider project but before
+   * PayBench persisted the returned metadata.
+   */
+  async fetchParticipantProject(projectIdValue: string): Promise<ReplayQaProject> {
+    const projectId = replayProjectId(projectIdValue);
+    const projectPayload = await this.request("GET", `/projects/${encodeURIComponent(projectId)}`);
+    let providerJourneys = rows(projectPayload);
+    if (providerJourneys.length === 0) {
+      providerJourneys = rows(await this.request(
+        "GET",
+        `/projects/${encodeURIComponent(projectId)}/journeys?page=1&page_size=100`,
+      ));
+    }
+    const journeys: ReplayQaProject["journeys"] = {};
+    let controlUrl = textField(projectPayload, ["target_url", "url_to_test"]);
+    let challengerUrl: string | undefined;
+    for (const providerJourney of providerJourneys) {
+      const name = textField(providerJourney, ["name", "slug"]);
+      if (!name || !REPLAY_QA_MATRIX.includes(name as ReplayJourneyId)) continue;
+      const journey = name as ReplayJourneyId;
+      const id = textField(providerJourney, ["id", "journey_id"])
+        ?? findStringDeep(providerJourney, new Set(["journey_id"]));
+      if (!id) continue;
+      journeys[journey] = replayProjectId(id);
+      const targetUrl = textField(providerJourney, ["target_url", "url_to_test"]);
+      if (targetUrl) {
+        if (journey.startsWith("b_")) challengerUrl ??= targetUrl;
+        else controlUrl ??= targetUrl;
+      }
+    }
+    if (REPLAY_QA_MATRIX.some((journey) => !journeys[journey]) || !controlUrl || !challengerUrl) {
+      throw new ReplayGateError(
+        "REPLAY_QA_PROJECT_METADATA_MISSING",
+        "Replay QA project is missing required journey or target metadata",
+      );
+    }
+    const targets = assertReplayParticipantTargets(controlUrl, challengerUrl, this.allowedPreviewHosts);
+    const projectUrl = textField(projectPayload, ["project_url", "url"])
+      ?? `https://qa.replay.io/projects/${encodeURIComponent(projectId)}`;
+    return parseReplayQaProject({
+      id: projectId,
+      url: projectUrl,
+      journeys,
+      targets: {
+        control: { url: targets.control.url.toString(), kind: targets.control.kind },
+        challenger: { url: targets.challenger.url.toString(), kind: targets.challenger.kind },
+      },
+    }, this.allowedPreviewHosts);
+  }
+
+  async readParticipantProject(project: ReplayQaProject): Promise<ReplayExecutionResult> {
     const bugPayload = await this.request("GET", `/projects/${encodeURIComponent(project.id)}/bugs?status=open&page=1&page_size=100`);
     const openBugs = rows(bugPayload);
     const runPayload = await this.request("GET", `/projects/${encodeURIComponent(project.id)}/test-runs?page=1&page_size=100`);
@@ -330,23 +534,16 @@ export class ReplayQaRestAdapter implements ReplayExecutionAdapter {
 
   async waitForParticipantProject(project: ReplayQaProject): Promise<ReplayExecutionResult> {
     const deadline = Date.now() + this.timeoutMs;
-    let last = await this.readEvidence(project);
+    let last = await this.readParticipantProject(project);
     while (Date.now() < deadline && last.status === "missing") {
       await this.sleep(this.pollIntervalMs);
-      last = await this.readEvidence(project);
+      last = await this.readParticipantProject(project);
     }
     return last;
   }
 
-  async run(input: {
-    job_id: string;
-    control_url: string;
-    challenger_url: string;
-    journeys: readonly ReplayJourneyId[];
-  }): Promise<ReplayExecutionResult> {
-    if (input.journeys.length !== REPLAY_QA_MATRIX.length || REPLAY_QA_MATRIX.some((journey) => !input.journeys.includes(journey))) {
-      throw new ReplayGateError("REPLAY_QA_MATRIX_INVALID", "Replay QA requires the complete participant journey matrix");
-    }
+  async run(input: ReplayQaStartInput): Promise<ReplayExecutionResult> {
+    assertCompleteMatrix(input.journeys);
     const project = await this.createParticipantProject(input);
     return this.waitForParticipantProject(project);
   }
