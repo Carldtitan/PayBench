@@ -226,7 +226,13 @@ export async function runPaidJob(
     } catch {
       changePlan = createFallbackChangePlan(spec);
     }
-    const variants = buildPaywallVariants(spec, changePlan);
+    let variants;
+    try {
+      variants = buildPaywallVariants(spec, changePlan);
+    } catch {
+      changePlan = createFallbackChangePlan(spec);
+      variants = buildPaywallVariants(spec, changePlan);
+    }
     const target = targetCustomer(job);
     const screeningSpec = screening(target);
     const teracPlatformFeeCents = Math.max(0, Number(process.env.TERAC_PLATFORM_FEE_CENTS ?? "0") || 0);
