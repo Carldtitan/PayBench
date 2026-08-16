@@ -30,6 +30,25 @@ export async function deliverReportToHealthyLinqChat(
   reportUrl: string,
   client?: LinqReportClient,
 ): Promise<LinqReportDeliveryResult> {
+  return deliverReplyToHealthyLinqChat(
+    chatId,
+    `Your PayBench report is ready: ${reportUrl}`,
+    client,
+  );
+}
+
+/**
+ * Sends only inside the founder's existing inbound chat. Chat health and the
+ * owning line's reputation are checked again immediately before every send.
+ */
+export async function deliverReplyToHealthyLinqChat(
+  chatId: string,
+  message: string,
+  client?: LinqReportClient,
+): Promise<LinqReportDeliveryResult> {
+  if (!message.trim() || message.length > 1500) {
+    return { status: "blocked", reason: "LINQ_MESSAGE_INVALID" };
+  }
   const apiKey = process.env.LINQ_API_V3_API_KEY ?? process.env.LINQ_API_KEY;
   if (!client && !apiKey) return { status: "blocked", reason: "LINQ_API_KEY_NOT_CONFIGURED" };
   const runtimeClient = client ?? (new Linq({ apiKey }) as unknown as LinqReportClient);
@@ -46,7 +65,7 @@ export async function deliverReportToHealthyLinqChat(
   }
   const response = await runtimeClient.chats.messages.send(chatId, {
     message: {
-      parts: [{ type: "text", value: `Your PayBench report is ready: ${reportUrl}` }],
+      parts: [{ type: "text", value: message }],
     },
   });
   return { status: "sent", provider_message_id: response.message.id };

@@ -157,6 +157,16 @@ function safeWebsiteUrl(value: unknown): string | null {
   }
 }
 
+function safeHttpsUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function founderLabel(websiteUrl: string, jobId: string): string {
   const hostname = new URL(websiteUrl).hostname.replace(/^www\./, "");
   const firstLabel = hostname.split(".")[0]?.replace(/[-_]+/g, " ").trim();
@@ -265,6 +275,81 @@ function liveSurfaces(rows: readonly unknown[]): {
   }
 
   return { sandboxes: [...byVariant.values()].slice(0, 2), replay };
+}
+
+function persistedSurfaces(rows: readonly unknown[]): SandboxLiveState[] {
+  const latest = new Map<"A" | "B", SandboxLiveState>();
+  const statusMap: Record<string, SandboxLiveState["status"]> = {
+    queued: "queued",
+    working: "editing",
+    ready: "ready",
+    failed: "failed",
+  };
+  for (const value of rows) {
+    const row = asRow(value);
+    if (!row) continue;
+    const variant = text(row, "variant_label");
+    const sandboxId = text(row, "superserve_sandbox_id");
+    const status = statusMap[text(row, "status") ?? ""];
+    const lastActivity = isoDate(row.updated_at ?? row.created_at);
+    if ((variant !== "A" && variant !== "B") || !sandboxId || !status || !lastActivity) continue;
+    const previewUrl =
+      text(row, "preview_access") === "operator_private"
+        ? safeHttpsUrl(row.latest_preview_path)
+        : undefined;
+    latest.set(variant, {
+      variant,
+      sandbox_id: sandboxId.slice(0, 160),
+      status,
+      task:
+        status === "ready"
+          ? `Variant ${variant} ready`
+          : status === "failed"
+            ? `Variant ${variant} stopped`
+            : `Building variant ${variant}`,
+      ...(previewUrl ? { preview_url: previewUrl } : {}),
+      last_activity_at: lastActivity,
+    });
+  }
+  return [...latest.values()].sort((left, right) => left.variant.localeCompare(right.variant));
+}
+
+function jsonObject(value: unknown): UnknownRow | null {
+  if (typeof value !== "string") return asRow(value);
+  try {
+    return asRow(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
+function persistedReplay(rows: readonly unknown[], fallback: ReplayLiveState): ReplayLiveState {
+  const row = asRow(rows[0]);
+  if (!row) return fallback;
+  const checks = jsonObject(row.checks_json) ?? {};
+  const blockers = integer(row, "replay_blocking_findings") ?? 0;
+  const runUrl = safeHttpsUrl(row.replay_run_url);
+  const weights: Array<[string, number]> = [
+    ["purchase_journey_passes", 4],
+    ["stop_journey_passes", 2],
+    ["validation_passes", 2],
+    ["survey_submission_passes", 2],
+    ["assignment_persistence_passes", 1],
+    ["mocked_terac_redirect_passes", 1],
+  ];
+  const completed = weights.reduce(
+    (total, [key, weight]) => total + (checks[key] === true ? weight : 0),
+    0,
+  );
+  const passed = Boolean(runUrl) && blockers === 0 && completed === 12;
+  return {
+    status: passed ? "passed" : "failed",
+    completed_checks: completed,
+    total_checks: 12,
+    blocking_findings: blockers,
+    ...(runUrl ? { run_url: runUrl } : {}),
+    ...(isoDate(row.checked_at) ? { last_activity_at: isoDate(row.checked_at) } : {}),
+  };
 }
 
 function artifact(
@@ -404,6 +489,8 @@ function buildCanonicalRecords(
     variants: readonly unknown[];
     reports: readonly unknown[];
     captures: readonly unknown[];
+    workSurfaces: readonly unknown[];
+    qualityGates: readonly unknown[];
   },
 ): CanonicalRunRecords {
   const id = text(jobRow, "id");
@@ -414,7 +501,8 @@ function buildCanonicalRecords(
     throw new Error("Canonical job cannot be projected");
   }
 
-  const surfaces = liveSurfaces(related.agentRuns);
+  const agentState = liveSurfaces(related.agentRuns);
+  const surfaces = persistedSurfaces(related.workSurfaces);
   const failureStage = failedStage(status, related.agentRuns, related.transitions);
   return {
     job: {
@@ -444,9 +532,9 @@ function buildCanonicalRecords(
       ? [{ status: "succeeded", amount_cents: 2000, currency: "USD" }]
       : [],
     stage_progress: stageProgress(related.agentRuns),
-    sandboxes: surfaces.sandboxes,
+    sandboxes: surfaces.length > 0 ? surfaces : agentState.sandboxes,
     study: studyAggregate(related.studies, related.sessions, related.variants),
-    replay: surfaces.replay,
+    replay: persistedReplay(related.qualityGates, agentState.replay),
     artifacts: collectArtifacts(
       id,
       updatedAt,
@@ -573,6 +661,8 @@ export class SupabaseDashboardRepository implements DashboardRepository {
             variants: [],
             reports: [],
             captures: [],
+            workSurfaces: [],
+            qualityGates: [],
           }),
         );
         runs.push({
@@ -593,7 +683,7 @@ export class SupabaseDashboardRepository implements DashboardRepository {
   }
 
   async getRun(jobId: string): Promise<DashboardRunSnapshot | null> {
-    const [jobs, transitions, agentRuns, studies, variants, reports, captures] =
+    const [jobs, transitions, agentRuns, studies, variants, reports, captures, workSurfaces, qualityGates] =
       await Promise.all([
         this.transport.select("jobs", {
           select: "id,submitted_url,normalized_url,status,payment_status,failure_code,created_at,updated_at",
@@ -628,6 +718,17 @@ export class SupabaseDashboardRepository implements DashboardRepository {
           job_id: `eq.${jobId}`,
           order: "captured_at.desc",
         }),
+        this.transport.select("variant_work_surfaces", {
+          select: "id,job_id,variant_label,superserve_sandbox_id,preview_access,latest_preview_path,status,created_at,updated_at",
+          job_id: `eq.${jobId}`,
+          order: "updated_at.asc",
+        }),
+        this.transport.select("quality_gate_runs", {
+          select: "id,job_id,checks_json,replay_run_url,replay_blocking_findings,gate_open,checked_at",
+          job_id: `eq.${jobId}`,
+          order: "checked_at.desc",
+          limit: "1",
+        }),
       ]);
 
     const job = asRow(jobs[0]);
@@ -653,6 +754,8 @@ export class SupabaseDashboardRepository implements DashboardRepository {
           variants,
           reports,
           captures,
+          workSurfaces,
+          qualityGates,
         }),
       ),
     );

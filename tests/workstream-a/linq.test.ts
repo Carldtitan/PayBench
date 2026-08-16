@@ -10,7 +10,7 @@ import {
   LinqV3HttpTransport,
   type LinqOutboundTransport,
 } from "../../apps/web/src/server/control/linq-outbound";
-import { deliverReportToHealthyLinqChat } from "../../apps/web/src/server/control/linq-report";
+import { deliverReplyToHealthyLinqChat, deliverReportToHealthyLinqChat } from "../../apps/web/src/server/control/linq-report";
 import { MemoryControlRepository } from "../../apps/web/src/server/control/memory-repository";
 
 const secretBytes = randomBytes(32);
@@ -95,6 +95,27 @@ describe("Linq inbound conversation", () => {
     await recordFinalReportDelivery(repository, { chat_id: "chat_demo", job_id: job.id, delivered_at: "2026-08-15T20:00:00.000Z" });
     expect((await repository.getJob(job.id))?.status).toBe("delivered");
     expect((await repository.getConversation("chat_demo"))?.phase.name).toBe("report_delivered");
+  });
+
+  it("dispatches one reply inside the verified inbound webhook and never repeats it", async () => {
+    const repository = new MemoryControlRepository();
+    const inbound = signedMessage("msg_dispatch_once", "https://example.com/pricing");
+    const replies: Array<{ event_id: string; chat_id: string; message: string }> = [];
+    const options = {
+      secret,
+      resolver,
+      nowSeconds: now,
+      dispatchReply: async (reply: { event_id: string; chat_id: string; message: string }) => {
+        replies.push(reply);
+      },
+    };
+
+    await handleLinqWebhook(inbound.body, inbound.headers, repository, options);
+    await handleLinqWebhook(inbound.body, inbound.headers, repository, options);
+
+    expect(replies).toEqual([
+      { event_id: "msg_dispatch_once", chat_id: "chat_demo", message: "Who should test this page? Describe the target customer." },
+    ]);
   });
 });
 
@@ -237,6 +258,12 @@ describe("Linq final report delivery", () => {
       provider_message_id: "message_report",
     });
     expect(fake.sends).toEqual(["Your PayBench report is ready: https://paybench.example/report/token"]);
+  });
+
+  it("sends a conversational intake reply through the same live health gates", async () => {
+    const fake = client();
+    await expect(deliverReplyToHealthyLinqChat("chat_demo", "Who should test this page?", fake.value)).resolves.toMatchObject({ status: "sent" });
+    expect(fake.sends).toEqual(["Who should test this page?"]);
   });
 
   it("blocks report delivery before transport when chat or line is unhealthy", async () => {

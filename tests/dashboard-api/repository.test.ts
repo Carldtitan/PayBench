@@ -243,6 +243,48 @@ describe("SupabaseDashboardRepository", () => {
           captured_at: "2026-08-15T20:18:00.000Z",
         },
       ],
+      variant_work_surfaces: [
+        {
+          id: "surface-a",
+          job_id: jobId,
+          variant_label: "A",
+          superserve_sandbox_id: "superserve-a",
+          preview_access: "operator_private",
+          latest_preview_path: "https://private.superserve.example/a",
+          status: "ready",
+          updated_at: "2026-08-15T20:25:00.000Z",
+          shell_token: "must-not-leak",
+        },
+        {
+          id: "surface-b",
+          job_id: jobId,
+          variant_label: "B",
+          superserve_sandbox_id: "superserve-b",
+          preview_access: "operator_private",
+          latest_preview_path: "javascript:alert(1)",
+          status: "working",
+          updated_at: "2026-08-15T20:26:00.000Z",
+        },
+      ],
+      quality_gate_runs: [
+        {
+          id: "gate-id",
+          job_id: jobId,
+          checks_json: {
+            purchase_journey_passes: true,
+            stop_journey_passes: true,
+            validation_passes: true,
+            survey_submission_passes: true,
+            assignment_persistence_passes: true,
+            mocked_terac_redirect_passes: true,
+            pages_approved: false,
+          },
+          replay_run_url: "https://app.replay.io/recording/demo",
+          replay_blocking_findings: 0,
+          checked_at: "2026-08-15T20:27:00.000Z",
+          raw_recording_token: "must-not-leak",
+        },
+      ],
     });
     const repository = new SupabaseDashboardRepository(transport);
 
@@ -258,7 +300,10 @@ describe("SupabaseDashboardRepository", () => {
       rejected: 0,
       technical_failures: 1,
     });
-    expect(snapshot?.sandboxes).toHaveLength(1);
+    expect(snapshot?.sandboxes).toHaveLength(2);
+    expect(snapshot?.sandboxes[0]).toMatchObject({ variant: "A", status: "ready", preview_url: "https://private.superserve.example/a" });
+    expect(snapshot?.sandboxes[1]).not.toHaveProperty("preview_url");
+    expect(snapshot?.replay).toMatchObject({ status: "passed", completed_checks: 12, total_checks: 12, blocking_findings: 0 });
     expect(snapshot?.artifacts.map((item) => item.object_path)).toEqual([
       `jobs/${jobId}/capture/desktop.png`,
       `jobs/${jobId}/variants/a.png`,

@@ -1,4 +1,5 @@
 import { handleLinqWebhook } from "../../../../src/server/control/linq";
+import { deliverReplyToHealthyLinqChat } from "../../../../src/server/control/linq-report";
 import { getControlRepository } from "../../../../src/server/control/supabase-repository";
 import { ControlError } from "../../../../src/server/control/types";
 
@@ -8,6 +9,7 @@ export const runtime = "nodejs";
 export async function POST(request: Request): Promise<Response> {
   const rawBody = await request.text();
   try {
+    const repository = await getControlRepository();
     const result = await handleLinqWebhook(
       rawBody,
       {
@@ -15,15 +17,30 @@ export async function POST(request: Request): Promise<Response> {
         timestamp: request.headers.get("webhook-timestamp"),
         signature: request.headers.get("webhook-signature"),
       },
-      await getControlRepository(),
+      repository,
+      {
+        dispatchReply: async ({ chat_id, message }) => {
+          const delivery = await deliverReplyToHealthyLinqChat(chat_id, message);
+          if (delivery.status === "blocked") {
+            // A health/reputation block is final for this inbound event. API
+            // failures throw and leave the webhook retriable.
+            return;
+          }
+        },
+      },
     );
-    // `reply` is a recorded outbound intent for a future dispatcher. This route
-    // never calls Linq's send API.
-    return Response.json({ received: true, ...result });
+    return Response.json({
+      received: true,
+      duplicate: result.duplicate,
+      phase: result.phase,
+      reply_sent: Boolean(result.reply),
+      ...(result.reply_blocked_reason
+        ? { reply_blocked_reason: result.reply_blocked_reason }
+        : {}),
+    });
   } catch (error) {
     const status = error instanceof ControlError ? error.status : 500;
     const code = error instanceof ControlError ? error.code : "LINQ_WEBHOOK_FAILED";
     return Response.json({ received: false, error: { code } }, { status });
   }
 }
-

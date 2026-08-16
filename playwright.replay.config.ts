@@ -19,6 +19,7 @@ export default defineConfig({
       upload: true,
     }),
     ["line"],
+    ["json", { outputFile: "test-results/replay-results.json" }],
   ],
   use: {
     trace: "off",

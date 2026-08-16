@@ -20,6 +20,12 @@ interface LinqWebhookResult {
   phase?: string;
 }
 
+export interface LinqInboundReply {
+  event_id: string;
+  chat_id: string;
+  message: string;
+}
+
 function safeEqualBase64(left: string, right: string): boolean {
   try {
     const leftBytes = Buffer.from(left, "base64");
@@ -244,6 +250,7 @@ export async function handleLinqWebhook(
     resolver?: HostResolver;
     paymentLink?: string;
     nowSeconds?: number;
+    dispatchReply?: (reply: LinqInboundReply) => Promise<void>;
   } = {},
 ): Promise<LinqWebhookResult> {
   verifyLinqWebhook(rawBody, headers, options.secret ?? process.env.LINQ_WEBHOOK_SECRET, options.nowSeconds);
@@ -272,6 +279,13 @@ export async function handleLinqWebhook(
     const chatId = eventChatId(payload);
     if (!text || !chatId) throw new ControlError("LINQ_MESSAGE_INVALID", 400);
     const result = await processInbound(text, chatId, eventHealth(payload), repository, options.resolver, options.paymentLink);
+    if (result.reply && options.dispatchReply) {
+      await options.dispatchReply({
+        event_id: headers.id,
+        chat_id: chatId,
+        message: result.reply,
+      });
+    }
     await repository.finishWebhook("linq", headers.id, "processed");
     return result;
   } catch (error) {

@@ -11,6 +11,18 @@ on:
         description: Private operator preview URL for challenger B
         required: true
         type: string
+      job_id:
+        description: PayBench job UUID
+        required: true
+        type: string
+      artifact_bundle_hash:
+        description: Frozen 64-character artifact bundle hash
+        required: true
+        type: string
+      qa_study_url:
+        description: Optional operator-only QA study URL; never a participant slot URL
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -28,8 +40,22 @@ jobs:
       - run: npm ci
       - run: npx replayio install
       - name: Record private paywall checks
+        id: replay_qa
+        continue-on-error: true
         run: npm run test:replay
         env:
           REPLAY_API_KEY: ${{ secrets.REPLAY_API_KEY }}
           REPLAY_CONTROL_URL: ${{ inputs.control_url }}
           REPLAY_CHALLENGER_URL: ${{ inputs.challenger_url }}
+          REPLAY_QA_STUDY_URL: ${{ inputs.qa_study_url }}
+      - name: Ingest signed Replay result
+        if: always()
+        run: node scripts/report-replay-result.mjs
+        env:
+          PAYBENCH_REPLAY_CALLBACK_URL: https://paybench.vercel.app/api/internal/replay-result
+          PAYBENCH_JOB_ID: ${{ inputs.job_id }}
+          PAYBENCH_ARTIFACT_BUNDLE_HASH: ${{ inputs.artifact_bundle_hash }}
+          WORKER_CALLBACK_SECRET: ${{ secrets.WORKER_CALLBACK_SECRET }}
+      - name: Keep failed recordings fail-closed
+        if: steps.replay_qa.outcome == 'failure'
+        run: exit 1
