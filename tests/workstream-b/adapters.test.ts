@@ -259,6 +259,8 @@ describe("Superserve operator work surfaces", () => {
     expect(SANDBOX_CLIENT_SOURCE).not.toContain("fetch(");
     expect(SANDBOX_SERVER_SOURCE).not.toMatch(/(?:fetch|script\s+src)=?[^\n]*https:\/\//i);
     expect(SANDBOX_SERVER_SOURCE).toContain("frame-ancestors https://paybench.vercel.app https://*.vercel.app");
+    expect(SANDBOX_SERVER_SOURCE).toContain('<html lang="en">');
+    expect(SANDBOX_SERVER_SOURCE).toContain("input[type=radio]{width:auto");
   });
 
   it("rejects calls without explicit operator authorization", async () => {
