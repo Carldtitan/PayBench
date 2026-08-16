@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { AnthropicStructuredOutputAdapter } from "../../apps/web/src/server/engine/anthropic";
 import {
+  SuperserveCaptureAdapter,
   SuperserveWorkSurfaceAdapter,
+  type CapturePlanBuilder,
   type SuperserveSandboxFactory,
   type SuperserveSandboxInstance,
 } from "../../apps/web/src/server/engine/superserve";
+import { SAFE_CAPTURE_LIMITS } from "../../apps/web/src/server/engine/capture";
 import { changePlanFixture, paywallFixture } from "./fixtures";
 
 describe("Anthropic structured output", () => {
@@ -87,5 +90,107 @@ describe("Superserve operator work surfaces", () => {
       control: paywallFixture,
       challenger: paywallFixture,
     })).rejects.toThrow("OPERATOR_ACCESS_REQUIRED");
+  });
+});
+
+describe("Superserve source capture", () => {
+  const sourceUrl = "https://example.com/";
+  const buildPlan: CapturePlanBuilder = async () => ({
+    sourceUrl,
+    limits: SAFE_CAPTURE_LIMITS,
+    captures: ["desktop_screenshot", "mobile_screenshot", "reduced_dom", "visible_text", "brand_tokens"],
+    browserRules: {
+      blockDownloads: true,
+      blockPopups: true,
+      blockPermissions: true,
+      blockExternalProtocols: true,
+      stopBeforeAccountTrialOrderOrCharge: true,
+      executeSourceScriptsInSandbox: true,
+      copySourceScriptsToGeneratedPage: false,
+    },
+  });
+
+  function captureSandbox(result: { exitCode: number; stderr?: string }) {
+    const writes: string[] = [];
+    const commands: string[] = [];
+    let paused = false;
+    let killed = false;
+    const sandbox: SuperserveSandboxInstance = {
+      id: "00000000-0000-4000-8000-000000000009",
+      files: {
+        async write(path) { writes.push(path); },
+        async readText() {
+          return JSON.stringify({
+            source_url: sourceUrl,
+            source_hash: "a".repeat(64),
+            desktop_screenshot_path: "/workspace/paybench/desktop.png",
+            mobile_screenshot_path: "/workspace/paybench/mobile.png",
+            reduced_dom: "<html><body>Example</body></html>",
+            visible_text: "Example",
+            brand_tokens: { title: "Example" },
+          });
+        },
+      },
+      commands: {
+        async spawn() { return { async kill() {} }; },
+        async run(command) {
+          commands.push(command);
+          return { stdout: "", stderr: result.stderr ?? "", exitCode: result.exitCode };
+        },
+      },
+      async getInfo() { return { id: this.id, status: "active" }; },
+      async publishPreviewPort() {},
+      async getSignedPreviewUrl() { return "https://preview.example/private"; },
+      async pause() { paused = true; },
+      async kill() { killed = true; },
+    };
+    return { sandbox, writes, commands, state: () => ({ paused, killed }) };
+  }
+
+  it("boots the configured browser template and runs the Node Playwright capture", async () => {
+    const fake = captureSandbox({ exitCode: 0 });
+    let createOptions: Parameters<SuperserveSandboxFactory["create"]>[0] | undefined;
+    const factory: SuperserveSandboxFactory = {
+      async create(options) {
+        createOptions = options;
+        return fake.sandbox;
+      },
+    };
+    const adapter = new SuperserveCaptureAdapter(factory, { template: "paybench-browser" }, buildPlan);
+    const evidence = await adapter.capture("63ca958e-3ad5-4f07-9f76-950da5587a1a", sourceUrl);
+
+    expect(createOptions).toMatchObject({ fromTemplate: "paybench-browser", previewAccess: "private" });
+    expect(fake.writes).toContain("/workspace/paybench/capture.mjs");
+    expect(fake.commands).toEqual(["node /workspace/paybench/capture.mjs"]);
+    expect(fake.state()).toEqual({ paused: true, killed: false });
+    expect(evidence.source_hash).toBe("a".repeat(64));
+  });
+
+  it("fails before sandbox creation when the browser template is not configured", async () => {
+    let createCalls = 0;
+    const adapter = new SuperserveCaptureAdapter({
+      async create() {
+        createCalls += 1;
+        throw new Error("not reached");
+      },
+    }, { template: " " }, buildPlan);
+
+    await expect(adapter.capture("63ca958e-3ad5-4f07-9f76-950da5587a1a", sourceUrl))
+      .rejects.toThrow("SUPERSERVE_TEMPLATE_REQUIRED");
+    expect(createCalls).toBe(0);
+  });
+
+  it("surfaces a known Playwright failure code and kills the sandbox", async () => {
+    const fake = captureSandbox({
+      exitCode: 1,
+      stderr: "PAYBENCH_CAPTURE_ERROR:SUPERSERVE_PLAYWRIGHT_UNAVAILABLE\n",
+    });
+    const adapter = new SuperserveCaptureAdapter({
+      async create() { return fake.sandbox; },
+    }, { template: "paybench-browser" }, buildPlan);
+
+    await expect(adapter.capture("63ca958e-3ad5-4f07-9f76-950da5587a1a", sourceUrl))
+      .rejects.toThrow("SUPERSERVE_PLAYWRIGHT_UNAVAILABLE");
+    expect(fake.state()).toEqual({ paused: false, killed: true });
   });
 });

@@ -27,6 +27,11 @@ import {
   SupabaseControlTransport,
   resolveSupabaseServerKey,
 } from "../control/supabase-repository";
+import {
+  SupabaseScoutTaskRepository,
+  acceptedScoutEvidence,
+  createScoutTaskForCaptureFailure,
+} from "../scout";
 
 type Row = Record<string, unknown>;
 
@@ -36,6 +41,8 @@ export interface PaidJobRunResult {
   artifact_bundle_hash?: string;
   study_token?: string;
   error_code?: string;
+  scout_task_url?: string;
+  scout_task_copy?: string;
 }
 
 function stable(value: unknown): string {
@@ -154,25 +161,53 @@ export async function runPaidJob(
 
   const sourceUrl = String(job.normalized_url ?? job.submitted_url);
   await updateJob(transport, jobId, { status: "capturing", failure_code: null });
-  let evidence;
-  try {
-    evidence = await (dependencies.capture ?? new SuperserveCaptureAdapter()).capture(jobId, sourceUrl);
-  } catch (error) {
-    const code = error instanceof Error ? error.message.slice(0, 80) : "SUPERSERVE_CAPTURE_FAILED";
-    await updateJob(transport, jobId, { status: "needs_scout", failure_code: code });
-    return { job_id: jobId, status: "needs_scout", error_code: code };
+  const scoutRepository = new SupabaseScoutTaskRepository(transport);
+  let evidence = await acceptedScoutEvidence(scoutRepository, jobId);
+  if (!evidence) {
+    try {
+      evidence = await (dependencies.capture ?? new SuperserveCaptureAdapter()).capture(jobId, sourceUrl);
+    } catch (error) {
+      const code = error instanceof Error ? error.message.slice(0, 80) : "SUPERSERVE_CAPTURE_FAILED";
+      await updateJob(transport, jobId, { status: "needs_scout", failure_code: code });
+      try {
+        const scout = await createScoutTaskForCaptureFailure(scoutRepository, {
+          job_id: jobId,
+          target_url: sourceUrl,
+          signing_secret: signingSecret,
+          app_base_url: process.env.APP_BASE_URL,
+        });
+        return {
+          job_id: jobId,
+          status: "needs_scout",
+          error_code: code,
+          scout_task_url: scout.task_url,
+          scout_task_copy: scout.copy,
+        };
+      } catch {
+        await updateJob(transport, jobId, { status: "failed", failure_code: "SCOUT_TASK_CREATE_FAILED" });
+        return { job_id: jobId, status: "failed", error_code: "SCOUT_TASK_CREATE_FAILED" };
+      }
+    }
   }
 
   try {
-    await transport.request("POST", "website_captures", {}, {
-      job_id: jobId,
-      final_url: evidence.source_url,
-      captured_at: new Date().toISOString(),
-      desktop_screenshot_path: evidence.desktop_screenshot_path,
-      mobile_screenshot_path: evidence.mobile_screenshot_path,
-      dom_path: `superserve/${evidence.sandbox_id}/capture.json`,
-      checksum: evidence.source_hash,
-    }, "return=minimal");
+    const [existingCapture] = await transport.request("GET", "website_captures", {
+      select: "id",
+      job_id: `eq.${jobId}`,
+      checksum: `eq.${evidence.source_hash}`,
+      limit: "1",
+    });
+    if (!existingCapture) {
+      await transport.request("POST", "website_captures", {}, {
+        job_id: jobId,
+        final_url: evidence.source_url,
+        captured_at: new Date().toISOString(),
+        desktop_screenshot_path: evidence.desktop_screenshot_path,
+        mobile_screenshot_path: evidence.mobile_screenshot_path,
+        dom_path: "sandbox_id" in evidence ? `superserve/${evidence.sandbox_id}/capture.json` : null,
+        checksum: evidence.source_hash,
+      }, "return=minimal");
+    }
     const model = dependencies.model ?? new AnthropicStructuredOutputAdapter({
       apiKey: process.env.ANTHROPIC_API_KEY ?? "",
       model: process.env.ANTHROPIC_MODEL,
@@ -214,7 +249,7 @@ export async function runPaidJob(
         source_url: evidence.source_url,
         desktop_screenshot_path: evidence.desktop_screenshot_path,
         mobile_screenshot_path: evidence.mobile_screenshot_path,
-        sandbox_id: evidence.sandbox_id,
+        sandbox_id: "sandbox_id" in evidence ? evidence.sandbox_id : undefined,
       },
       confidence: 1,
       source_hash: spec.source_hash,

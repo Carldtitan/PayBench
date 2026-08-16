@@ -2,7 +2,7 @@ import "./server-only";
 
 import type { PaywallSpec, SandboxLiveState } from "@paybench/contracts";
 import { validatePaywallSpec } from "../../../../../packages/paywall/src";
-import { createCaptureEvidencePlan } from "./capture";
+import { createCaptureEvidencePlan, type CaptureEvidencePlan } from "./capture";
 import type { CapturedPageEvidence } from "./anthropic";
 
 const WORKDIR = "/workspace/paybench";
@@ -59,50 +59,108 @@ export interface SuperserveSandboxInstance {
 }
 
 const CAPTURE_SCRIPT = String.raw`
-import hashlib, html, json, os, re, shutil, subprocess, sys
-from html.parser import HTMLParser
+import { createHash } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
 
-class Text(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.parts = []
-    def handle_data(self, data):
-        value = " ".join(data.split())
-        if value:
-            self.parts.append(value)
+const fail = (code) => {
+  console.error("PAYBENCH_CAPTURE_ERROR:" + code);
+  process.exitCode = 1;
+};
 
-source = open("/workspace/paybench/source-url.txt", "r", encoding="utf-8").read().strip()
-browser = next((shutil.which(name) for name in ["google-chrome", "chromium", "chromium-browser"] if shutil.which(name)), None)
-if not browser:
-    print("SUPERSERVE_BROWSER_UNAVAILABLE", file=sys.stderr)
-    sys.exit(17)
-
-common = [browser, "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--hide-scrollbars"]
-desktop = "/workspace/paybench/desktop.png"
-mobile = "/workspace/paybench/mobile.png"
-subprocess.run(common + ["--window-size=1440,960", "--screenshot=" + desktop, source], check=True, timeout=30)
-subprocess.run(common + ["--window-size=390,844", "--screenshot=" + mobile, source], check=True, timeout=30)
-dom = subprocess.run(common + ["--dump-dom", source], check=True, capture_output=True, text=True, timeout=30).stdout
-parser = Text()
-parser.feed(dom)
-visible = "\n".join(parser.parts)
-colors = list(dict.fromkeys(re.findall(r"#[0-9a-fA-F]{6}", dom)))[:24]
-title_match = re.search(r"<title[^>]*>(.*?)</title>", dom, re.I | re.S)
-result = {
-  "source_url": source,
-  "source_hash": hashlib.sha256(dom.encode("utf-8")).hexdigest(),
-  "desktop_screenshot_path": desktop,
-  "mobile_screenshot_path": mobile,
-  "reduced_dom": dom[:200000],
-  "visible_text": visible[:100000],
-  "brand_tokens": {"title": html.unescape(title_match.group(1).strip()) if title_match else "", "colors": colors},
+let chromium;
+try {
+  ({ chromium } = await import("playwright"));
+} catch {
+  fail("SUPERSERVE_PLAYWRIGHT_UNAVAILABLE");
 }
-open("/workspace/paybench/capture.json", "w", encoding="utf-8").write(json.dumps(result))
+
+if (chromium) {
+  const source = (await readFile("/workspace/paybench/source-url.txt", "utf8")).trim();
+  const desktop = "/workspace/paybench/desktop.png";
+  const mobile = "/workspace/paybench/mobile.png";
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch {
+    fail("SUPERSERVE_BROWSER_UNAVAILABLE");
+  }
+
+  if (browser) {
+    try {
+      const capture = async (viewport, screenshotPath, collectEvidence) => {
+        const context = await browser.newContext({
+          viewport,
+          acceptDownloads: false,
+          serviceWorkers: "block",
+        });
+        await context.clearPermissions();
+        const page = await context.newPage();
+        page.on("dialog", (dialog) => void dialog.dismiss());
+        page.on("popup", (popup) => void popup.close());
+        await page.route("**/*", async (route) => {
+          const protocol = new URL(route.request().url()).protocol;
+          if (protocol !== "http:" && protocol !== "https:") return route.abort("blockedbyclient");
+          return route.continue();
+        });
+        const response = await page.goto(source, { waitUntil: "domcontentloaded", timeout: 30_000 });
+        if (!response) throw new Error("navigation produced no response");
+        const contentLength = Number(response.headers()["content-length"] || "0");
+        if (contentLength > 20 * 1024 * 1024) throw new Error("response exceeded capture limit");
+        await page.screenshot({ path: screenshotPath, fullPage: true, animations: "disabled" });
+        if (!collectEvidence) {
+          await context.close();
+          return null;
+        }
+        const evidence = await page.evaluate(() => {
+          const body = document.body;
+          const styles = body ? getComputedStyle(body) : null;
+          const colors = new Set();
+          for (const element of Array.from(document.querySelectorAll("body *")).slice(0, 500)) {
+            const style = getComputedStyle(element);
+            for (const value of [style.color, style.backgroundColor, style.borderColor]) {
+              if (value && value !== "rgba(0, 0, 0, 0)") colors.add(value);
+            }
+          }
+          return {
+            dom: document.documentElement.outerHTML,
+            visibleText: body?.innerText || "",
+            brandTokens: {
+              title: document.title,
+              colors: Array.from(colors).slice(0, 24),
+              font_family: styles?.fontFamily || "",
+            },
+          };
+        });
+        await context.close();
+        return evidence;
+      };
+
+      const evidence = await capture({ width: 1440, height: 960 }, desktop, true);
+      await capture({ width: 390, height: 844 }, mobile, false);
+      if (!evidence) throw new Error("capture evidence missing");
+      const dom = evidence.dom.slice(0, 200_000);
+      await writeFile("/workspace/paybench/capture.json", JSON.stringify({
+        source_url: source,
+        source_hash: createHash("sha256").update(evidence.dom).digest("hex"),
+        desktop_screenshot_path: desktop,
+        mobile_screenshot_path: mobile,
+        reduced_dom: dom,
+        visible_text: evidence.visibleText.slice(0, 100_000),
+        brand_tokens: evidence.brandTokens,
+      }), "utf8");
+    } catch {
+      fail("SUPERSERVE_CAPTURE_RUNTIME_FAILED");
+    } finally {
+      await browser.close();
+    }
+  }
+}
 `;
 
 export interface SuperserveSandboxFactory {
   create(options: {
     name: string;
+    fromTemplate?: string;
     timeoutSeconds: number;
     autoDeleteSeconds: number;
     previewAccess: "private";
@@ -122,19 +180,45 @@ export interface SuperserveCapturedEvidence extends CapturedPageEvidence {
   sandbox_id: string;
 }
 
+export interface SuperserveCaptureOptions {
+  template: string;
+}
+
+export type CapturePlanBuilder = (sourceUrl: string) => Promise<CaptureEvidencePlan>;
+
+const CAPTURE_ERROR_CODES = new Set([
+  "SUPERSERVE_PLAYWRIGHT_UNAVAILABLE",
+  "SUPERSERVE_BROWSER_UNAVAILABLE",
+  "SUPERSERVE_CAPTURE_RUNTIME_FAILED",
+]);
+
+function captureCommandError(stderr: string): string {
+  const candidate = /PAYBENCH_CAPTURE_ERROR:(SUPERSERVE_[A-Z_]+)/.exec(stderr)?.[1];
+  return candidate && CAPTURE_ERROR_CODES.has(candidate)
+    ? candidate
+    : "SUPERSERVE_CAPTURE_FAILED";
+}
+
 export class SuperserveCaptureAdapter {
   constructor(
     private readonly factory: SuperserveSandboxFactory = defaultSuperserveSandboxFactory,
+    private readonly options: SuperserveCaptureOptions = {
+      template: process.env.SUPERSERVE_TEMPLATE ?? "",
+    },
+    private readonly buildPlan: CapturePlanBuilder = createCaptureEvidencePlan,
   ) {}
 
   async capture(jobId: string, sourceUrl: string): Promise<SuperserveCapturedEvidence> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
       throw new Error("JOB_ID_INVALID");
     }
-    const plan = await createCaptureEvidencePlan(sourceUrl);
+    const template = this.options.template.trim();
+    if (!template) throw new Error("SUPERSERVE_TEMPLATE_REQUIRED");
+    const plan = await this.buildPlan(sourceUrl);
     const hostname = new URL(plan.sourceUrl).hostname;
     const sandbox = await this.factory.create({
       name: `paybench-${jobId.slice(0, 8)}-capture`,
+      fromTemplate: template,
       timeoutSeconds: 1_800,
       autoDeleteSeconds: 86_400,
       previewAccess: "private",
@@ -151,15 +235,13 @@ export class SuperserveCaptureAdapter {
     });
     try {
       await sandbox.files.write(`${WORKDIR}/source-url.txt`, plan.sourceUrl);
-      await sandbox.files.write(`${WORKDIR}/capture.py`, CAPTURE_SCRIPT);
-      const result = await sandbox.commands.run(`python3 ${WORKDIR}/capture.py`, {
+      await sandbox.files.write(`${WORKDIR}/capture.mjs`, CAPTURE_SCRIPT);
+      const result = await sandbox.commands.run(`node ${WORKDIR}/capture.mjs`, {
         cwd: WORKDIR,
         timeoutMs: 90_000,
       });
       if (result.exitCode !== 0) {
-        throw new Error(result.stderr.includes("SUPERSERVE_BROWSER_UNAVAILABLE")
-          ? "SUPERSERVE_BROWSER_UNAVAILABLE"
-          : "SUPERSERVE_CAPTURE_FAILED");
+        throw new Error(captureCommandError(result.stderr));
       }
       if (!sandbox.files.readText) throw new Error("SUPERSERVE_FILE_READ_UNAVAILABLE");
       const evidence = JSON.parse(await sandbox.files.readText(`${WORKDIR}/capture.json`)) as CapturedPageEvidence;
