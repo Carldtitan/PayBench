@@ -56,6 +56,19 @@ function sentenceCase(value: string) {
   return value.replaceAll("_", " ").replace(/^./, (character) => character.toUpperCase());
 }
 
+const DEFAULT_NEXT_ACTION: Record<DashboardStage["id"], string> = {
+  intake: "Review the submitted website",
+  payment: "Wait for the $20 Stripe payment",
+  capture: "Capture the source paywall",
+  variants: "Build control A and challenger B",
+  replay: "Run Replay against both pages",
+  approvals: "Approve the pages and Terac quote",
+  pilot: "Complete one A and one B pilot",
+  study: "Collect the remaining valid sessions",
+  report: "Generate the directional report",
+  delivery: "Deliver the report through Linq",
+};
+
 function isRunList(value: unknown): value is DashboardRunListItem[] {
   return Array.isArray(value) && value.every((item) => {
     if (!item || typeof item !== "object") return false;
@@ -186,7 +199,23 @@ function DemoFrame({ variant }: { variant: "A" | "B" }) {
   );
 }
 
-function SandboxMonitor({ sandbox }: { sandbox: SandboxLiveState }) {
+function EmptyFrame({ variant }: { variant: "A" | "B" }) {
+  return (
+    <div className="demo-frame" aria-label={`Private preview for variant ${variant} is not ready`}>
+      <div className="browser-bar"><i /><i /><i /><span>private preview</span></div>
+      <div className="demo-page">
+        <div className="demo-offer">
+          <span className="demo-plan">Variant {variant}</span>
+          <strong>Waiting for Superserve</strong>
+          <span>The private operator preview will appear here.</span>
+        </div>
+      </div>
+      <span className="demo-stamp">No frame</span>
+    </div>
+  );
+}
+
+function SandboxMonitor({ sandbox, demo }: { sandbox: SandboxLiveState; demo: boolean }) {
   const availableLink = sandbox.viewer_url ?? sandbox.preview_url;
   return (
     <section className="sandbox-panel" aria-labelledby={`sandbox-${sandbox.variant}`}>
@@ -205,7 +234,7 @@ function SandboxMonitor({ sandbox }: { sandbox: SandboxLiveState }) {
           // eslint-disable-next-line @next/next/no-img-element
           <img src={sandbox.latest_frame_url} alt={`Latest Superserve frame for variant ${sandbox.variant}`} referrerPolicy="no-referrer" />
         ) : (
-          <DemoFrame variant={sandbox.variant} />
+          demo ? <DemoFrame variant={sandbox.variant} /> : <EmptyFrame variant={sandbox.variant} />
         )}
       </div>
       <div className="sandbox-foot">
@@ -221,7 +250,7 @@ function SandboxMonitor({ sandbox }: { sandbox: SandboxLiveState }) {
   );
 }
 
-function WorkSurfaces({ sandboxes }: { sandboxes: SandboxLiveState[] }) {
+function WorkSurfaces({ sandboxes, source }: { sandboxes: SandboxLiveState[]; source: DashboardRunSnapshot["source"] }) {
   const byVariant = new Map(sandboxes.map((sandbox) => [sandbox.variant, sandbox]));
   const fallback = (variant: "A" | "B"): SandboxLiveState => ({
     variant,
@@ -238,8 +267,8 @@ function WorkSurfaces({ sandboxes }: { sandboxes: SandboxLiveState[] }) {
         <span>2 sandboxes</span>
       </div>
       <div className="sandbox-grid">
-        <SandboxMonitor sandbox={byVariant.get("A") ?? fallback("A")} />
-        <SandboxMonitor sandbox={byVariant.get("B") ?? fallback("B")} />
+        <SandboxMonitor sandbox={byVariant.get("A") ?? fallback("A")} demo={source === "demo"} />
+        <SandboxMonitor sandbox={byVariant.get("B") ?? fallback("B")} demo={source === "demo"} />
       </div>
     </section>
   );
@@ -761,14 +790,14 @@ export function OperatorDashboard() {
           <Rundown stages={snapshot.stages} currentStage={snapshot.current_stage} />
           <aside className="action-board" data-blocked={Boolean(snapshot.blocker)} aria-label={snapshot.blocker ? "Current blocker" : "Next action"}>
             <span>{snapshot.blocker ? "Blocked" : snapshot.job_status === "delivered" ? "Complete" : "On deck"}</span>
-            <strong>{snapshot.blocker?.label ?? snapshot.next_action ?? "Founder report delivered"}</strong>
+            <strong>{snapshot.blocker?.label ?? snapshot.next_action ?? (snapshot.job_status === "delivered" ? "Founder report delivered" : DEFAULT_NEXT_ACTION[snapshot.current_stage])}</strong>
             {snapshot.blocker ? <code>{snapshot.blocker.code}</code> : <span className="action-actor">{sentenceCase(snapshot.current_stage)}</span>}
           </aside>
         </div>
 
         {operatorStudy ? <PrelaunchDesk status={operatorStudy} busy={approvalBusy} onApprove={approve} onUnlockMain={unlockMain} /> : null}
 
-        <WorkSurfaces sandboxes={snapshot.sandboxes} />
+        <WorkSurfaces sandboxes={snapshot.sandboxes} source={snapshot.source} />
 
         <div className="evidence-grid">
           <StudyPanel study={snapshot.study} />
