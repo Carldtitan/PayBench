@@ -17,10 +17,12 @@ import {
 import { buildPaywallVariants } from "../../../../../packages/paywall/src";
 import {
   AnthropicStructuredOutputAdapter,
-  createFallbackChangePlan,
-  createFallbackPaywallSpec,
+  MockReplayExecutionAdapter,
+  REPLAY_QA_MATRIX,
   SuperserveCaptureAdapter,
   SuperserveWorkSurfaceAdapter,
+  runReplayBeforeRecruitment,
+  runtimeReplayQaRestAdapter,
   type ReplayExecutionAdapter,
   type ReplayExecutionResult,
 } from "../engine";
@@ -33,7 +35,6 @@ import {
   acceptedScoutEvidence,
   createScoutTaskForCaptureFailure,
 } from "../scout";
-import { getSupabaseStudyRepository } from "../study";
 
 type Row = Record<string, unknown>;
 
@@ -119,14 +120,6 @@ async function updateJob(
     ...body,
     updated_at: new Date().toISOString(),
   }, "return=minimal");
-}
-
-function internalQaSuccess(): ReplayExecutionResult {
-  return {
-    status: "passed",
-    blocking_findings: 0,
-    journeys: {},
-  };
 }
 
 export async function runPaidJob(
@@ -225,25 +218,14 @@ export async function runPaidJob(
       apiKey: process.env.ANTHROPIC_API_KEY ?? "",
       model: process.env.ANTHROPIC_MODEL,
     });
-    let spec;
-    try {
-      spec = await model.extractPaywallSpec(evidence);
-    } catch {
-      spec = createFallbackPaywallSpec(evidence);
-    }
-    let changePlan;
-    try {
-      changePlan = await model.createChangePlan(spec);
-    } catch {
-      changePlan = createFallbackChangePlan(spec);
-    }
-    let variants;
-    try {
-      variants = buildPaywallVariants(spec, changePlan);
-    } catch {
-      changePlan = createFallbackChangePlan(spec);
-      variants = buildPaywallVariants(spec, changePlan);
-    }
+    jobLog(jobId, "anthropic_spec_started");
+    const spec = await model.extractPaywallSpec(evidence);
+    const changePlan = await model.createChangePlan(spec);
+    const variants = buildPaywallVariants(spec, changePlan);
+    jobLog(jobId, "anthropic_variants_completed", {
+      source_hash: spec.source_hash,
+      locked_facts_hash: spec.locked_facts_hash,
+    });
     const target = targetCustomer(job);
     const screeningSpec = screening(target);
     const teracPlatformFeeCents = Math.max(0, Number(process.env.TERAC_PLATFORM_FEE_CENTS ?? "0") || 0);
@@ -316,27 +298,31 @@ export async function runPaidJob(
     }, "return=representation");
     if (!variantA || !variantB) throw new Error("VARIANT_PERSIST_FAILED");
 
-    try {
-      const surfaces = await (dependencies.surfaces ?? new SuperserveWorkSurfaceAdapter()).open({
-        jobId,
-        operatorAuthorized: true,
-        sourceUrl,
-        control: variants.control,
-        challenger: variants.challenger,
-      });
-      for (const surface of surfaces) {
-        await transport.request("POST", "variant_work_surfaces", {}, {
-          job_id: jobId,
-          variant_label: surface.variant,
-          superserve_sandbox_id: surface.sandbox_id,
-          preview_access: "operator_private",
-          latest_preview_path: surface.preview_url,
-          status: "ready",
-        }, "return=minimal");
-      }
-    } catch {
-      // Participant pages render from the validated specs; private work surfaces are optional.
+    jobLog(jobId, "superserve_surfaces_started");
+    const surfaces = await (dependencies.surfaces ?? new SuperserveWorkSurfaceAdapter()).open({
+      jobId,
+      operatorAuthorized: true,
+      sourceUrl,
+      control: variants.control,
+      challenger: variants.challenger,
+    });
+    if (surfaces.length !== 2 || surfaces.some((surface) => surface.status !== "ready" || !surface.preview_url)) {
+      throw new Error("SUPERSERVE_SURFACES_INCOMPLETE");
     }
+    for (const surface of surfaces) {
+      await transport.request("POST", "variant_work_surfaces", {}, {
+        job_id: jobId,
+        variant_label: surface.variant,
+        superserve_sandbox_id: surface.sandbox_id,
+        preview_access: "operator_private",
+        latest_preview_path: surface.preview_url,
+        status: "ready",
+      }, "return=minimal");
+    }
+    jobLog(jobId, "superserve_surfaces_completed", {
+      control_sandbox_id: surfaces[0].sandbox_id,
+      challenger_sandbox_id: surfaces[1].sandbox_id,
+    });
 
     await transport.request("POST", "funding_quotes", {}, {
       job_id: jobId,
@@ -380,37 +366,83 @@ export async function runPaidJob(
     ];
     await transport.request("POST", "study_assignment_slots", {}, slots, "return=minimal");
 
-    const replayResult = internalQaSuccess();
-    const replayPassed = true;
-    const checks = {
-      control_matches_source: true,
-      challenger_has_exactly_one_change: true,
-      locked_facts_match: true,
-      desktop_passes: replayPassed,
-      mobile_passes: replayPassed,
-      purchase_journey_passes: replayPassed,
-      stop_journey_passes: replayPassed,
-      validation_passes: replayPassed,
-      survey_submission_passes: replayPassed,
-      assignment_persistence_passes: replayPassed,
-      mocked_terac_redirect_passes: replayPassed,
-      replay_run_present: true,
-      replay_blocking_findings: 0 as const,
-      pages_approved: false,
-      quote_approved: false,
-      founder_payment_confirmed: true,
-      terac_credit_funding_confirmed: false,
-    };
-    const gate = prelaunchGateSchema.parse({
-      checks,
-      artifact_bundle_hash: artifactBundleHash,
-      open: false,
-      checked_at: new Date().toISOString(),
+    jobLog(jobId, "replay_qa_started");
+    const replayAdapter = dependencies.replay ?? runtimeReplayQaRestAdapter();
+    let replayResult: ReplayExecutionResult | undefined;
+    let gate;
+    try {
+      replayResult = await replayAdapter.run({
+        job_id: jobId,
+        control_url: surfaces[0].preview_url!,
+        challenger_url: surfaces[1].preview_url!,
+        journeys: REPLAY_QA_MATRIX,
+      });
+      ({ gate } = await runReplayBeforeRecruitment({
+        job_id: jobId,
+        control_url: surfaces[0].preview_url!,
+        challenger_url: surfaces[1].preview_url!,
+        artifact_bundle_hash: artifactBundleHash,
+        control_matches_source: true,
+        challenger_has_exactly_one_change: true,
+        locked_facts_match: true,
+        pages_approved: false,
+        quote_approved: false,
+        founder_payment_confirmed: true,
+        terac_credit_funding_confirmed: false,
+      }, new MockReplayExecutionAdapter(replayResult)));
+    } catch (error) {
+      const replayCode = error instanceof Error ? error.message.slice(0, 80) : "REPLAY_QA_FAILED";
+      gate = prelaunchGateSchema.parse({
+        checks: {
+          control_matches_source: true,
+          challenger_has_exactly_one_change: true,
+          locked_facts_match: true,
+          desktop_passes: false,
+          mobile_passes: false,
+          purchase_journey_passes: false,
+          stop_journey_passes: false,
+          validation_passes: false,
+          survey_submission_passes: false,
+          assignment_persistence_passes: false,
+          mocked_terac_redirect_passes: false,
+          replay_run_present: Boolean(replayResult?.run_url),
+          replay_blocking_findings: replayResult?.blocking_findings ?? 0,
+          pages_approved: false,
+          quote_approved: false,
+          founder_payment_confirmed: true,
+          terac_credit_funding_confirmed: false,
+        },
+        artifact_bundle_hash: artifactBundleHash,
+        open: false,
+        checked_at: new Date().toISOString(),
+      });
+      await transport.request("POST", "quality_gate_runs", {}, {
+        job_id: jobId,
+        artifact_bundle_hash: artifactBundleHash,
+        checks_json: gate.checks,
+        replay_run_id: replayResult?.project_id,
+        replay_run_url: replayResult?.run_url,
+        replay_blocking_findings: replayResult?.blocking_findings ?? 0,
+        gate_open: false,
+      }, "return=minimal");
+      console.error("[paybench:run]", { job_id: jobId, step: "replay_qa_blocked", code: replayCode });
+      await updateJob(transport, jobId, { status: "qa_blocked", failure_code: replayCode });
+      return {
+        job_id: jobId,
+        status: "qa_blocked",
+        artifact_bundle_hash: artifactBundleHash,
+        error_code: replayCode,
+      };
+    }
+    jobLog(jobId, "replay_qa_completed", {
+      project_id: replayResult.project_id,
+      blocking_findings: replayResult.blocking_findings,
     });
     await transport.request("POST", "quality_gate_runs", {}, {
       job_id: jobId,
       artifact_bundle_hash: artifactBundleHash,
       checks_json: gate.checks,
+      replay_run_id: replayResult.project_id,
       replay_run_url: replayResult.run_url,
       replay_blocking_findings: replayResult.blocking_findings,
       gate_open: false,
@@ -419,13 +451,9 @@ export async function runPaidJob(
       status: "awaiting_approvals",
       failure_code: null,
     });
-    const studyRepository = await getSupabaseStudyRepository();
-    await studyRepository.approve("pages", artifactBundleHash, jobId);
-    await studyRepository.approve("terac_quote", artifactBundleHash, jobId);
-    await updateJob(transport, jobId, { status: "pilot", failure_code: null });
     return {
       job_id: jobId,
-      status: "pilot_ready",
+      status: "awaiting_approvals",
       artifact_bundle_hash: artifactBundleHash,
       study_token: studyToken,
     };
