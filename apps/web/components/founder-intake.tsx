@@ -68,7 +68,7 @@ export function FounderIntake() {
             <div style={styles.success}>
               <p style={styles.eyebrow}>Started</p>
               <h2>Your test is running.</h2>
-              <a style={styles.link} href="/admin">Open run desk</a>
+              <a style={styles.link} href={`/run/${created.job_id}`}>Watch this run</a>
             </div>
           ) : (
             <form onSubmit={submit} style={{ display: "contents" }}>

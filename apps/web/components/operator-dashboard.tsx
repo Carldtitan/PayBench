@@ -61,7 +61,7 @@ const DEFAULT_NEXT_ACTION: Record<DashboardStage["id"], string> = {
   payment: "Wait for the $20 Stripe payment",
   capture: "Capture the source paywall",
   variants: "Build control A and challenger B",
-  replay: "Run Replay against both pages",
+  replay: "Run checkout QA against both pages",
   approvals: "Approve the pages and Terac quote",
   pilot: "Complete one A and one B pilot",
   study: "Collect the remaining valid sessions",
@@ -307,7 +307,7 @@ function ReplayPanel({ replay }: { replay: DashboardRunSnapshot["replay"] }) {
   return (
     <section className="replay-panel" data-status={replay.status} aria-labelledby="replay-title">
       <div className="section-heading">
-        <h2 id="replay-title">Replay QA</h2>
+        <h2 id="replay-title">Checkout QA</h2>
         <span className="live-state" data-status={replay.status}><i aria-hidden="true" />{sentenceCase(replay.status)}</span>
       </div>
       <div className="replay-now">
@@ -342,8 +342,8 @@ const GATE_LABELS: Record<string, string> = {
   survey_submission_passes: "Shared survey",
   assignment_persistence_passes: "Stable assignment",
   mocked_terac_redirect_passes: "Mock redirect and PB fallback",
-  replay_run_present: "Replay run present",
-  replay_blocking_findings: "No Replay blockers",
+  replay_run_present: "QA run present",
+  replay_blocking_findings: "No QA blockers",
   pages_approved: "Pages approved",
   quote_approved: "Quote approved",
   founder_payment_confirmed: "Founder payment confirmed",

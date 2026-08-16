@@ -35,7 +35,7 @@ const STAGE_META: Record<
   payment: { actor: "stripe", label: "Payment" },
   capture: { actor: "superserve", label: "Capture" },
   variants: { actor: "superserve", label: "Variants" },
-  replay: { actor: "replay", label: "Replay" },
+  replay: { actor: "paybench", label: "QA" },
   approvals: { actor: "paybench", label: "Approvals" },
   pilot: { actor: "terac", label: "Pilot" },
   study: { actor: "terac", label: "Study" },
@@ -65,13 +65,13 @@ const STATUS_STAGE: Record<Exclude<JobStatus, "failed">, DashboardStageId> = {
 
 const BLOCKER_LABELS: Record<string, string> = {
   SCOUT_REQUIRED: "Paywall needs a manual capture",
-  REPLAY_BLOCKED: "Replay found a blocking checkout issue",
+  REPLAY_BLOCKED: "QA found a blocking checkout issue",
 };
 
 const NEXT_ACTIONS: Record<string, string> = {
   WAIT_FOR_STUDY: "Collect the remaining valid sessions",
   POST_SCOUT_TASK: "Send the manual capture task to Terac",
-  FIX_REPLAY_FINDING: "Repair the failed journey, then run Replay again",
+  FIX_REPLAY_FINDING: "Repair the failed journey, then run QA again",
 };
 
 const EVENT_SUMMARIES = {
@@ -83,8 +83,8 @@ const EVENT_SUMMARIES = {
   variants_ready: "Both paywall variants passed validation",
   study_started: "End-user study started",
   study_progress: "Valid study sessions received",
-  replay_started: "Replay QA started",
-  replay_failed: "Replay found a blocking checkout issue",
+  replay_started: "QA started",
+  replay_failed: "QA found a blocking checkout issue",
 } as const;
 
 type EventSummaryCode = keyof typeof EVENT_SUMMARIES;

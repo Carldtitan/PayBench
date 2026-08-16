@@ -107,6 +107,72 @@ function sha256(value: unknown): string {
   return createHash("sha256").update(stable(value)).digest("hex");
 }
 
+function evidenceLines(evidence: CapturedPageEvidence): string[] {
+  return [...new Set(evidence.visible_text
+    .split(/\r?\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => line.length > 1 && line.length <= 2_000))]
+    .slice(0, 40);
+}
+
+function capturedColor(evidence: CapturedPageEvidence, index: number, fallback: string): string {
+  const colors = Object.values(evidence.brand_tokens)
+    .filter((value): value is string => typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value));
+  return colors[index] ?? fallback;
+}
+
+/** Safe local continuation when a provider returns structurally invalid JSON. */
+export function createFallbackPaywallSpec(evidence: CapturedPageEvidence): PaywallSpec {
+  const lines = evidenceLines(evidence);
+  const hostname = new URL(evidence.source_url).hostname.replace(/^www\./, "");
+  const productName = (lines[0] ?? hostname.split(".")[0] ?? "Product").slice(0, 100);
+  const price = lines.find((line) => /[$€£¥]\s?\d/.test(line)) ?? lines[1] ?? productName;
+  const details = lines.filter((line) => line !== productName && line !== price).slice(0, 4);
+  const safeDetails = details.length > 0 ? details : [price];
+  const billing = lines.filter((line) => /month|year|annual|billing|billed|one[- ]time/i.test(line)).slice(0, 3);
+  const safeBilling = billing.length > 0 ? billing : [price];
+  const legal = lines.filter((line) => /terms|privacy|cancel|refund/i.test(line)).slice(0, 3);
+  const locked = lockedFactsSchema.parse({
+    product_name: productName,
+    product_details: safeDetails,
+    price_display: price,
+    billing_terms: safeBilling,
+    legal_text: legal.length > 0 ? legal : safeBilling,
+    claims: [],
+    trial_terms: [],
+    guarantee_terms: [],
+  });
+  const brand = {
+    name: productName,
+    primary_color: capturedColor(evidence, 0, "#171717"),
+    accent_color: capturedColor(evidence, 1, "#5E6AD2"),
+    surface_color: capturedColor(evidence, 2, "#F7F7F8"),
+    text_color: capturedColor(evidence, 3, "#171717"),
+    font_family: "system-ui",
+  };
+  return validatePaywallSpec(paywallSpecSchema.parse({
+    contract_version: "2",
+    source_url: evidence.source_url,
+    brand,
+    locked_facts: locked,
+    tree: buildControlTree({ brand, headline: productName, supporting_copy: safeDetails, primary_action_label: "Continue" }, locked),
+    source_hash: evidence.source_hash,
+    locked_facts_hash: sha256(locked),
+  }));
+}
+
+export function createFallbackChangePlan(specInput: PaywallSpec): ChangePlan {
+  const spec = validatePaywallSpec(specInput);
+  const trustItem = spec.locked_facts.claims[0] ?? spec.locked_facts.product_details[0]!;
+  return validateChangePlan(changePlanSchema.parse({
+    contract_version: "2",
+    hypothesis: "Emphasizing existing source proof may reduce hesitation without changing the offer.",
+    operation: { kind: "change_trust_emphasis", target_component_id: "trust-panel", value: trustItem },
+    source_spec_hash: spec.source_hash,
+    locked_facts_hash: spec.locked_facts_hash,
+  }));
+}
+
 const UNSUPPORTED_WIRE_CONSTRAINTS = new Set([
   "minimum",
   "maximum",

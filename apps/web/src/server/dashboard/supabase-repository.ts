@@ -91,8 +91,8 @@ const SAFE_EVENT_SUMMARIES = new Set([
   "Both paywall variants passed validation",
   "End-user study started",
   "Valid study sessions received",
-  "Replay QA started",
-  "Replay found a blocking checkout issue",
+  "QA started",
+  "QA found a blocking checkout issue",
 ]);
 
 const SUMMARY_BY_REASON: Record<string, string> = {
@@ -104,8 +104,8 @@ const SUMMARY_BY_REASON: Record<string, string> = {
   variants_ready: "Both paywall variants passed validation",
   study_started: "End-user study started",
   study_progress: "Valid study sessions received",
-  replay_started: "Replay QA started",
-  replay_failed: "Replay found a blocking checkout issue",
+  replay_started: "QA started",
+  replay_failed: "QA found a blocking checkout issue",
 };
 
 const STAGE_ACTORS: Record<DashboardStageId, DashboardActor> = {
@@ -113,7 +113,7 @@ const STAGE_ACTORS: Record<DashboardStageId, DashboardActor> = {
   payment: "stripe",
   capture: "superserve",
   variants: "superserve",
-  replay: "replay",
+  replay: "paybench",
   approvals: "paybench",
   pilot: "terac",
   study: "terac",
