@@ -17,14 +17,13 @@ import {
 import { buildPaywallVariants } from "../../../../../packages/paywall/src";
 import {
   AnthropicStructuredOutputAdapter,
-  MockReplayExecutionAdapter,
   REPLAY_QA_MATRIX,
   SuperserveCaptureAdapter,
   SuperserveWorkSurfaceAdapter,
-  runReplayBeforeRecruitment,
+  beginReplayQa,
   runtimeReplayQaRestAdapter,
-  type ReplayExecutionAdapter,
-  type ReplayExecutionResult,
+  type ReplayQaContinuation,
+  type ReplayQaLifecycleAdapter,
 } from "../engine";
 import {
   SupabaseControlTransport,
@@ -35,12 +34,13 @@ import {
   acceptedScoutEvidence,
   createScoutTaskForCaptureFailure,
 } from "../scout";
+import { persistReplayQaContinuation } from "../engine/replay-resume";
 
 type Row = Record<string, unknown>;
 
 export interface PaidJobRunResult {
   job_id: string;
-  status: "pilot_ready" | "awaiting_approvals" | "qa_blocked" | "needs_scout" | "failed";
+  status: "qa_pending" | "pilot_ready" | "awaiting_approvals" | "qa_blocked" | "needs_scout" | "failed";
   artifact_bundle_hash?: string;
   study_token?: string;
   error_code?: string;
@@ -128,7 +128,7 @@ export async function runPaidJob(
     capture?: SuperserveCaptureAdapter;
     surfaces?: SuperserveWorkSurfaceAdapter;
     model?: AnthropicStructuredOutputAdapter;
-    replay?: ReplayExecutionAdapter;
+    replay?: ReplayQaLifecycleAdapter;
   } = {},
 ): Promise<PaidJobRunResult> {
   jobLog(jobId, "started");
@@ -152,9 +152,15 @@ export async function runPaidJob(
     limit: "1",
   });
   if (existingStudy) {
+    const currentStatus = String(job.status ?? "");
     return {
       job_id: jobId,
-      status: "awaiting_approvals",
+      status:
+        currentStatus === "awaiting_approvals"
+          ? "awaiting_approvals"
+          : currentStatus === "qa_blocked"
+            ? "qa_blocked"
+            : "qa_pending",
       artifact_bundle_hash: String(existingStudy.artifact_bundle_hash),
     };
   }
@@ -369,31 +375,60 @@ export async function runPaidJob(
     await updateJob(transport, jobId, { status: "qa_replay", failure_code: null });
     jobLog(jobId, "replay_qa_started");
     const replayAdapter = dependencies.replay ?? runtimeReplayQaRestAdapter();
-    let replayResult: ReplayExecutionResult | undefined;
-    let gate;
     try {
-      replayResult = await replayAdapter.run({
+      const started = await beginReplayQa({
         job_id: jobId,
         control_url: surfaces[0].preview_url!,
         challenger_url: surfaces[1].preview_url!,
         journeys: REPLAY_QA_MATRIX,
-      });
-      ({ gate } = await runReplayBeforeRecruitment({
+      }, replayAdapter);
+      const continuation: ReplayQaContinuation = {
+        version: 1,
         job_id: jobId,
-        control_url: surfaces[0].preview_url!,
-        challenger_url: surfaces[1].preview_url!,
         artifact_bundle_hash: artifactBundleHash,
+        project: started.project,
+        created_at: new Date().toISOString(),
+      };
+      const pendingChecks = {
         control_matches_source: true,
         challenger_has_exactly_one_change: true,
         locked_facts_match: true,
+        desktop_passes: false,
+        mobile_passes: false,
+        purchase_journey_passes: false,
+        stop_journey_passes: false,
+        validation_passes: false,
+        survey_submission_passes: false,
+        assignment_persistence_passes: false,
+        mocked_terac_redirect_passes: false,
+        replay_run_present: false,
+        replay_blocking_findings: 0,
         pages_approved: false,
         quote_approved: false,
         founder_payment_confirmed: true,
         terac_credit_funding_confirmed: false,
-      }, new MockReplayExecutionAdapter(replayResult)));
+        _replay_continuation: continuation,
+      };
+      await transport.request("POST", "quality_gate_runs", {}, {
+        job_id: jobId,
+        artifact_bundle_hash: artifactBundleHash,
+        checks_json: pendingChecks,
+        replay_run_id: started.project.id,
+        replay_run_url: started.project.url,
+        replay_blocking_findings: 0,
+        gate_open: false,
+      }, "return=minimal");
+      await persistReplayQaContinuation(transport, continuation);
+      jobLog(jobId, "replay_qa_pending", { project_id: started.project.id });
+      return {
+        job_id: jobId,
+        status: "qa_pending",
+        artifact_bundle_hash: artifactBundleHash,
+        study_token: studyToken,
+      };
     } catch (error) {
       const replayCode = error instanceof Error ? error.message.slice(0, 80) : "REPLAY_QA_FAILED";
-      gate = prelaunchGateSchema.parse({
+      const gate = prelaunchGateSchema.parse({
         checks: {
           control_matches_source: true,
           challenger_has_exactly_one_change: true,
@@ -406,8 +441,8 @@ export async function runPaidJob(
           survey_submission_passes: false,
           assignment_persistence_passes: false,
           mocked_terac_redirect_passes: false,
-          replay_run_present: Boolean(replayResult?.run_url),
-          replay_blocking_findings: replayResult?.blocking_findings ?? 0,
+          replay_run_present: false,
+          replay_blocking_findings: 0,
           pages_approved: false,
           quote_approved: false,
           founder_payment_confirmed: true,
@@ -421,13 +456,13 @@ export async function runPaidJob(
         job_id: jobId,
         artifact_bundle_hash: artifactBundleHash,
         checks_json: gate.checks,
-        replay_run_id: replayResult?.project_id,
-        replay_run_url: replayResult?.run_url,
-        replay_blocking_findings: replayResult?.blocking_findings ?? 0,
+        replay_run_id: null,
+        replay_run_url: null,
+        replay_blocking_findings: 0,
         gate_open: false,
       }, "return=minimal");
       console.error("[paybench:run]", { job_id: jobId, step: "replay_qa_blocked", code: replayCode });
-      await updateJob(transport, jobId, { status: "qa_blocked", failure_code: replayCode });
+      await updateJob(transport, jobId, { status: "failed", failure_code: replayCode });
       return {
         job_id: jobId,
         status: "qa_blocked",
@@ -435,29 +470,6 @@ export async function runPaidJob(
         error_code: replayCode,
       };
     }
-    jobLog(jobId, "replay_qa_completed", {
-      project_id: replayResult.project_id,
-      blocking_findings: replayResult.blocking_findings,
-    });
-    await transport.request("POST", "quality_gate_runs", {}, {
-      job_id: jobId,
-      artifact_bundle_hash: artifactBundleHash,
-      checks_json: gate.checks,
-      replay_run_id: replayResult.project_id,
-      replay_run_url: replayResult.run_url,
-      replay_blocking_findings: replayResult.blocking_findings,
-      gate_open: false,
-    }, "return=minimal");
-    await updateJob(transport, jobId, {
-      status: "awaiting_approvals",
-      failure_code: null,
-    });
-    return {
-      job_id: jobId,
-      status: "awaiting_approvals",
-      artifact_bundle_hash: artifactBundleHash,
-      study_token: studyToken,
-    };
   } catch (error) {
     const code = error instanceof Error ? error.message.slice(0, 80) : "PAID_JOB_RUN_FAILED";
     console.error("[paybench:run]", {

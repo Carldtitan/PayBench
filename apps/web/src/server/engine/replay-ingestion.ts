@@ -314,7 +314,7 @@ export async function ingestReplayResult(
       checked_at: new Date().toISOString(),
     }, "return=minimal");
     await transport.request("PATCH", "jobs", { id: `eq.${payload.job_id}` }, {
-      status: replayPassed ? "awaiting_approvals" : "qa_replay",
+      status: replayPassed ? "awaiting_approvals" : "failed",
       failure_code: replayPassed ? null : "REPLAY_QA_BLOCKED",
       updated_at: new Date().toISOString(),
     }, "return=minimal");

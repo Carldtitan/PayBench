@@ -133,7 +133,7 @@ describe("signed Replay result ingestion", () => {
     const result = await ingestReplayResult(body, headers(body), transport, { secret, nowSeconds: now });
     expect(result.replay_passed).toBe(false);
     expect(transport.gate.gate_open).toBe(false);
-    expect(transport.job).toMatchObject({ status: "qa_replay", failure_code: "REPLAY_QA_BLOCKED" });
+    expect(transport.job).toMatchObject({ status: "failed", failure_code: "REPLAY_QA_BLOCKED" });
   });
 
   it("rejects bad signatures, stale artifact hashes, and duplicate delivery", async () => {

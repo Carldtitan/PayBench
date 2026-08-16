@@ -323,7 +323,11 @@ function jsonObject(value: unknown): UnknownRow | null {
   }
 }
 
-function persistedReplay(rows: readonly unknown[], fallback: ReplayLiveState): ReplayLiveState {
+function persistedReplay(
+  rows: readonly unknown[],
+  fallback: ReplayLiveState,
+  jobStatus: string,
+): ReplayLiveState {
   const row = asRow(rows[0]);
   if (!row) return fallback;
   const checks = jsonObject(row.checks_json) ?? {};
@@ -342,8 +346,9 @@ function persistedReplay(rows: readonly unknown[], fallback: ReplayLiveState): R
     0,
   );
   const passed = Boolean(runUrl) && blockers === 0 && completed === 12;
+  const running = jobStatus === "qa_replay" && Boolean(runUrl) && !passed;
   return {
-    status: passed ? "passed" : "failed",
+    status: passed ? "passed" : running ? "checking" : "failed",
     completed_checks: completed,
     total_checks: 12,
     blocking_findings: blockers,
@@ -503,7 +508,11 @@ function buildCanonicalRecords(
 
   const agentState = liveSurfaces(related.agentRuns);
   const surfaces = persistedSurfaces(related.workSurfaces);
-  const failureStage = failedStage(status, related.agentRuns, related.transitions);
+  const failureCode = text(jobRow, "failure_code");
+  const failureStage =
+    status === "failed" && failureCode?.startsWith("REPLAY_")
+      ? "replay"
+      : failedStage(status, related.agentRuns, related.transitions);
   return {
     job: {
       id,
@@ -534,7 +543,7 @@ function buildCanonicalRecords(
     stage_progress: stageProgress(related.agentRuns),
     sandboxes: surfaces.length > 0 ? surfaces : agentState.sandboxes,
     study: studyAggregate(related.studies, related.sessions, related.variants),
-    replay: persistedReplay(related.qualityGates, agentState.replay),
+    replay: persistedReplay(related.qualityGates, agentState.replay, status),
     artifacts: collectArtifacts(
       id,
       updatedAt,
@@ -643,7 +652,7 @@ export class SupabaseDashboardRepository implements DashboardRepository {
 
   async listRuns(): Promise<DashboardRunListItem[]> {
     const rows = await this.transport.select("jobs", {
-      select: "id,submitted_url,normalized_url,status,payment_status,updated_at",
+      select: "id,submitted_url,normalized_url,status,payment_status,failure_code,updated_at",
       order: "updated_at.desc",
       limit: "100",
     });
