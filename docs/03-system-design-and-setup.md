@@ -900,12 +900,12 @@ Supabase now recommends `sb_publishable_...` and `sb_secret_...` keys. The secre
 
 | Variable | Status | Purpose |
 | --- | --- | --- |
-| `TERAC_API_KEY` | Already supplied | Create scout and participant studies |
-| `SUPERSERVE_API_KEY` | Already supplied | Create and reconnect to worker VMs |
-| `LINQ_API_KEY` | Already supplied | Linq API access |
-| `LINQ_API_V3_API_KEY` | Already supplied | Linq SDK and CLI access |
-| `LINQ_PHONE_NUMBER` | Already supplied | Display the inbound PayBench number |
-| `REPLAY_API_KEY` | Get from Replay Test Suite team settings | Authenticate Replay Browser uploads |
+| `SUPERSERVE_API_KEY` | Configured; capture attempt failed closed | Create and reconnect to private worker VMs |
+| `LINQ_API_KEY` | Configured | Linq webhook verification fallback |
+| `LINQ_API_V3_API_KEY` | Configured | Linq SDK, CLI, and healthy-chat delivery |
+| `REPLAY_API_KEY` | Missing | Authenticate Replay Browser uploads; get it from Replay Test Suite team settings |
+
+Terac needs no application key in this build. `TERAC_MODE=mock` and `TERAC_LIVE_DISABLED=true` are mandatory, and there is no create, publish, upload, or launch transport.
 
 ## Stripe values
 
