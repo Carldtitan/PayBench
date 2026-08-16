@@ -688,7 +688,23 @@ export class SupabaseDashboardRepository implements DashboardRepository {
         // One malformed row must not expose raw data or hide healthy runs.
       }
     }
-    return runs;
+    const activeStatuses = new Set([
+      "paid",
+      "capturing",
+      "spec_ready",
+      "building_variants",
+      "quality_check",
+      "qa_replay",
+      "awaiting_approvals",
+      "pilot",
+      "recruiting",
+      "testing",
+      "analyzing",
+      "replay_qa",
+    ]);
+    return runs
+      .filter((run) => run.paid && activeStatuses.has(run.job_status))
+      .slice(0, 4);
   }
 
   async getRun(jobId: string): Promise<DashboardRunSnapshot | null> {
