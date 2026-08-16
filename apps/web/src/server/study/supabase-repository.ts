@@ -728,7 +728,7 @@ export class SupabaseStudyRepository {
       checks,
       artifact_bundle_hash: artifactHash,
       open: Boolean(gateRow.gate_open),
-      checked_at: String(gateRow.checked_at),
+      checked_at: new Date(String(gateRow.checked_at)).toISOString(),
     });
     const [quote] = await this.transport.request("GET", "funding_quotes", {
       select: "participant_count,reward_cents,participant_subtotal_cents,terac_platform_fee_cents,credits_confirmed",
