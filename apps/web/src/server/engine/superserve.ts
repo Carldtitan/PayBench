@@ -58,9 +58,24 @@ export interface SuperserveSandboxInstance {
   kill(): Promise<void>;
 }
 
-const CAPTURE_SCRIPT = String.raw`
+export const CAPTURE_SCRIPT = String.raw`
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
+import { isIP } from "node:net";
+
+const blockedHost = (hostname) => {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) return true;
+  const family = isIP(host);
+  if (family === 4) {
+    const [a, b] = host.split(".").map(Number);
+    return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  }
+  if (family === 6) {
+    return host === "::1" || host === "::" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe8") || host.startsWith("fe9") || host.startsWith("fea") || host.startsWith("feb") || host.startsWith("::ffff:");
+  }
+  return false;
+};
 
 const fail = (code) => {
   console.error("PAYBENCH_CAPTURE_ERROR:" + code);
@@ -86,11 +101,13 @@ if (chromium) {
   }
 
   if (browser) {
+    let phase = "DESKTOP";
     try {
       const capture = async (viewport, screenshotPath, collectEvidence) => {
         const context = await browser.newContext({
           viewport,
           acceptDownloads: false,
+          ignoreHTTPSErrors: true,
           serviceWorkers: "block",
         });
         await context.clearPermissions();
@@ -98,8 +115,8 @@ if (chromium) {
         page.on("dialog", (dialog) => void dialog.dismiss());
         page.on("popup", (popup) => void popup.close());
         await page.route("**/*", async (route) => {
-          const protocol = new URL(route.request().url()).protocol;
-          if (protocol !== "http:" && protocol !== "https:") return route.abort("blockedbyclient");
+          const target = new URL(route.request().url());
+          if ((target.protocol !== "http:" && target.protocol !== "https:") || blockedHost(target.hostname)) return route.abort("blockedbyclient");
           return route.continue();
         });
         const response = await page.goto(source, { waitUntil: "domcontentloaded", timeout: 30_000 });
@@ -136,8 +153,10 @@ if (chromium) {
       };
 
       const evidence = await capture({ width: 1440, height: 960 }, desktop, true);
+      phase = "MOBILE";
       await capture({ width: 390, height: 844 }, mobile, false);
       if (!evidence) throw new Error("capture evidence missing");
+      phase = "WRITE";
       const dom = evidence.dom.slice(0, 200_000);
       await writeFile("/workspace/paybench/capture.json", JSON.stringify({
         source_url: source,
@@ -149,7 +168,7 @@ if (chromium) {
         brand_tokens: evidence.brandTokens,
       }), "utf8");
     } catch {
-      fail("SUPERSERVE_CAPTURE_RUNTIME_FAILED");
+      fail("SUPERSERVE_CAPTURE_" + phase + "_FAILED");
     } finally {
       await browser.close();
     }
@@ -190,6 +209,9 @@ const CAPTURE_ERROR_CODES = new Set([
   "SUPERSERVE_PLAYWRIGHT_UNAVAILABLE",
   "SUPERSERVE_BROWSER_UNAVAILABLE",
   "SUPERSERVE_CAPTURE_RUNTIME_FAILED",
+  "SUPERSERVE_CAPTURE_DESKTOP_FAILED",
+  "SUPERSERVE_CAPTURE_MOBILE_FAILED",
+  "SUPERSERVE_CAPTURE_WRITE_FAILED",
 ]);
 
 function captureCommandError(stderr: string): string {
@@ -215,7 +237,6 @@ export class SuperserveCaptureAdapter {
     const template = this.options.template.trim();
     if (!template) throw new Error("SUPERSERVE_TEMPLATE_REQUIRED");
     const plan = await this.buildPlan(sourceUrl);
-    const hostname = new URL(plan.sourceUrl).hostname;
     const sandbox = await this.factory.create({
       name: `paybench-${jobId.slice(0, 8)}-capture`,
       fromTemplate: template,
@@ -229,8 +250,11 @@ export class SuperserveCaptureAdapter {
         visibility: "operator-only",
       },
       network: {
-        allowOut: [hostname, `*.${hostname}`, "superserve.ai", "*.superserve.ai"],
-        denyOut: ["0.0.0.0/0"],
+        // The sandbox contains no sponsor credentials. Browser interception
+        // above blocks private/link-local destinations while allowing the
+        // public page's CDN assets to load accurately.
+        allowOut: ["0.0.0.0/0"],
+        denyOut: [],
       },
     });
     try {
