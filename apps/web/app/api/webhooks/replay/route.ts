@@ -11,7 +11,8 @@ export const maxDuration = 60;
 function projectIdHint(value: unknown): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const row = value as Record<string, unknown>;
-  const direct = typeof row.project_id === "string" ? row.project_id : undefined;
+  const direct = [row.project_id, row.projectId, row.id]
+    .find((candidate): candidate is string => typeof candidate === "string");
   const nested = row.project && typeof row.project === "object" && !Array.isArray(row.project)
     ? (row.project as Record<string, unknown>).id
     : undefined;
@@ -57,4 +58,3 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 }
-
