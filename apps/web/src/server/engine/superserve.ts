@@ -19,6 +19,13 @@ const survey = byId("participant-survey");
 const status = byId("journey-status");
 const stop = byId("stop-action");
 const continueAction = byId("continue-action");
+const interactionZone = document.createElement("section");
+interactionZone.id = "interaction-zone";
+interactionZone.setAttribute("aria-label", "Simulated checkout actions");
+byId("plan-step").after(interactionZone);
+for (const element of [status, continueAction, stop, checkout, review, survey, byId("completion")]) {
+  interactionZone.append(element);
+}
 let decision = null;
 
 const announce = (message) => {
