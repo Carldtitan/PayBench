@@ -71,13 +71,28 @@ function payload(overrides: Record<string, unknown> = {}) {
   const journeys = Object.fromEntries(
     REPLAY_QA_MATRIX.map((id) => [id, "passed"]),
   ) as Record<ReplayJourneyId, "passed">;
+  const control = "https://a.preview.superserve.ai/control?signed=one";
+  const challenger = "https://b.preview.superserve.ai/challenger?signed=two";
+  const evidence = Object.fromEntries(
+    REPLAY_QA_MATRIX.map((id) => [id, {
+      participant_url: id.startsWith("b_") ? challenger : control,
+      recording_url: `https://app.replay.io/recording/${id}`,
+      provider_journey_id: `journey-${id}`,
+      target_kind: "superserve_preview",
+      status: "passed",
+    }]),
+  );
   return JSON.stringify({
     job_id: jobId,
     artifact_bundle_hash: artifactHash,
+    provider: "replay_qa",
+    project_id: "replay-project-paybench",
+    targets: { control, challenger },
     status: "passed",
     run_url: "https://app.replay.io/recording/paybench-demo",
     blocking_findings: 0,
     journeys,
+    evidence,
     ...overrides,
   });
 }
@@ -110,7 +125,11 @@ describe("signed Replay result ingestion", () => {
   it("fails closed for one missing journey or any blocking finding", async () => {
     const transport = new MemoryTransport();
     const missing = Object.fromEntries(REPLAY_QA_MATRIX.map((id) => [id, id === "mocked_terac_redirect" ? "missing" : "passed"]));
-    const body = payload({ journeys: missing, blocking_findings: 1 });
+    const parsed = JSON.parse(payload()) as Record<string, unknown>;
+    const evidence = parsed.evidence as Record<string, Record<string, unknown>>;
+    evidence.mocked_terac_redirect.status = "missing";
+    delete evidence.mocked_terac_redirect.recording_url;
+    const body = payload({ journeys: missing, evidence, blocking_findings: 1 });
     const result = await ingestReplayResult(body, headers(body), transport, { secret, nowSeconds: now });
     expect(result.replay_passed).toBe(false);
     expect(transport.gate.gate_open).toBe(false);
@@ -127,5 +146,26 @@ describe("signed Replay result ingestion", () => {
 
     await ingestReplayResult(body, headers(body, "once"), transport, { secret, nowSeconds: now });
     await expect(ingestReplayResult(body, headers(body, "once"), transport, { secret, nowSeconds: now })).resolves.toMatchObject({ duplicate: true });
+  });
+
+  it("rejects homepage targets and passed journeys without Replay recording evidence", async () => {
+    const transport = new MemoryTransport();
+    const homepage = payload({
+      targets: {
+        control: "https://paybench.vercel.app/",
+        challenger: "https://b.preview.superserve.ai/challenger?signed=two",
+      },
+    });
+    await expect(ingestReplayResult(homepage, headers(homepage, "homepage"), transport, { secret, nowSeconds: now })).rejects.toMatchObject({
+      code: "REPLAY_TARGETS_INVALID",
+    });
+
+    const parsed = JSON.parse(payload()) as Record<string, unknown>;
+    const evidence = parsed.evidence as Record<string, Record<string, unknown>>;
+    delete evidence.a_desktop_purchase.recording_url;
+    const noRecording = payload({ evidence });
+    await expect(ingestReplayResult(noRecording, headers(noRecording, "no-recording"), new MemoryTransport(), { secret, nowSeconds: now })).rejects.toMatchObject({
+      code: "REPLAY_EVIDENCE_INVALID",
+    });
   });
 });

@@ -27,6 +27,17 @@ export interface ReplayExecutionResult {
   run_url?: string;
   blocking_findings: number;
   journeys: Partial<Record<ReplayJourneyId, "passed" | "failed" | "missing">>;
+  evidence?: Partial<Record<ReplayJourneyId, ReplayJourneyEvidence>>;
+  provider?: "replay_qa" | "replay_browser" | "mock";
+  project_id?: string;
+}
+
+export interface ReplayJourneyEvidence {
+  participant_url: string;
+  recording_url?: string;
+  provider_journey_id?: string;
+  target_kind?: "participant" | "superserve_preview";
+  status: "passed" | "failed" | "missing";
 }
 
 export interface ReplayExecutionAdapter {
@@ -68,6 +79,15 @@ function parseReplayResult(input: unknown): ReplayExecutionResult {
     run_url: typeof value.run_url === "string" ? value.run_url : undefined,
     blocking_findings: Number(value.blocking_findings),
     journeys,
+    evidence:
+      value.evidence && typeof value.evidence === "object" && !Array.isArray(value.evidence)
+        ? (value.evidence as ReplayExecutionResult["evidence"])
+        : undefined,
+    provider:
+      value.provider === "replay_qa" || value.provider === "replay_browser" || value.provider === "mock"
+        ? value.provider
+        : undefined,
+    project_id: typeof value.project_id === "string" ? value.project_id : undefined,
   };
 }
 
@@ -134,6 +154,34 @@ export async function runReplayBeforeRecruitment(
   if (runUrl.protocol !== "https:") throw new ReplayGateError("REPLAY_RUN_URL_INVALID", "Replay run URL must use HTTPS");
   const missing = REPLAY_QA_MATRIX.filter((id) => replay.journeys[id] !== "passed");
   if (missing.length > 0) throw new ReplayGateError("REPLAY_JOURNEY_INCOMPLETE", `Replay journey did not pass: ${missing[0]}`);
+  if (replay.provider === "replay_qa") {
+    const evidenceMissing = REPLAY_QA_MATRIX.find((id) => {
+      const evidence = replay.evidence?.[id];
+      if (!evidence || evidence.status !== "passed" || !evidence.recording_url) return true;
+      try {
+        const target = new URL(evidence.participant_url);
+        const recording = new URL(evidence.recording_url);
+        const expectedTarget = id.startsWith("b_") ? input.challenger_url : input.control_url;
+        const targetMatchesInput = target.toString() === new URL(expectedTarget).toString();
+        return (
+          target.protocol !== "https:" ||
+          !targetMatchesInput ||
+          (evidence.target_kind !== "participant" && evidence.target_kind !== "superserve_preview") ||
+          recording.protocol !== "https:" ||
+          recording.hostname !== "app.replay.io" ||
+          !recording.pathname.startsWith("/recording/")
+        );
+      } catch {
+        return true;
+      }
+    });
+    if (evidenceMissing) {
+      throw new ReplayGateError(
+        "REPLAY_EVIDENCE_MISSING",
+        `Replay QA did not provide participant-page recording evidence: ${evidenceMissing}`,
+      );
+    }
+  }
 
   const checks = {
     control_matches_source: input.control_matches_source,

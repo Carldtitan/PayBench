@@ -11,6 +11,7 @@
     "build": "npm run build --workspace @paybench/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run tests packages/contracts/tests",
-    "test:replay": "playwright test --config playwright.replay.config.ts --project replay-chromium"
+    "test:replay": "vitest run tests/workstream-b/replay-qa-rest.test.ts tests/integrations/replay-ingestion.test.ts",
+    "test:replay-browser": "playwright test --config playwright.replay.config.ts --project replay-chromium"
   }
 }

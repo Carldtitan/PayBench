@@ -19,6 +19,8 @@ loadEnvConfig(
 
 const nextConfig: NextConfig = {
   transpilePackages: ["@paybench/contracts"],
+  // Replay QA can trace recorded failures back to the original React source.
+  productionBrowserSourceMaps: true,
 };
 
 export default nextConfig;

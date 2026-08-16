@@ -1,6 +1,11 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { REPLAY_QA_MATRIX, type ReplayJourneyId } from "./replay";
+import {
+  REPLAY_QA_MATRIX,
+  type ReplayJourneyEvidence,
+  type ReplayJourneyId,
+} from "./replay";
+import { assertReplayParticipantTargets } from "./replay-qa-rest";
 import { resolveSupabaseServerKey, SupabaseControlTransport } from "../control/supabase-repository";
 
 type Headers = {
@@ -12,10 +17,14 @@ type Headers = {
 export interface ReplayResultPayload {
   job_id: string;
   artifact_bundle_hash: string;
+  provider: "replay_qa";
+  project_id: string;
+  targets: { control: string; challenger: string };
   status: "passed" | "failed";
   run_url?: string;
   blocking_findings: number;
   journeys: Record<ReplayJourneyId, "passed" | "failed" | "missing">;
+  evidence: Record<ReplayJourneyId, ReplayJourneyEvidence>;
 }
 
 export interface ReplayResultTransport {
@@ -93,11 +102,79 @@ function parsePayload(rawBody: string): ReplayResultPayload {
     }
     journeys[id] = status;
   }
+  const targetRows = row.targets && typeof row.targets === "object" && !Array.isArray(row.targets)
+    ? row.targets as Record<string, unknown>
+    : {};
+  if (typeof targetRows.control !== "string" || typeof targetRows.challenger !== "string") {
+    throw new ReplayIngestionError("REPLAY_TARGETS_INVALID");
+  }
+  let targets: ReplayResultPayload["targets"];
+  try {
+    const allowedPreviewHosts = process.env.REPLAY_QA_ALLOWED_PREVIEW_HOSTS
+      ?.split(",")
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean);
+    const parsed = assertReplayParticipantTargets(targetRows.control, targetRows.challenger, allowedPreviewHosts);
+    targets = {
+      control: parsed.control.url.toString(),
+      challenger: parsed.challenger.url.toString(),
+    };
+  } catch {
+    throw new ReplayIngestionError("REPLAY_TARGETS_INVALID");
+  }
+  const evidenceRows = row.evidence && typeof row.evidence === "object" && !Array.isArray(row.evidence)
+    ? row.evidence as Record<string, unknown>
+    : {};
+  if (
+    Object.keys(evidenceRows).length !== REPLAY_QA_MATRIX.length ||
+    Object.keys(evidenceRows).some((key) => !REPLAY_QA_MATRIX.includes(key as ReplayJourneyId))
+  ) {
+    throw new ReplayIngestionError("REPLAY_EVIDENCE_INVALID");
+  }
+  const evidence = {} as ReplayResultPayload["evidence"];
+  for (const id of REPLAY_QA_MATRIX) {
+    const entry = evidenceRows[id] && typeof evidenceRows[id] === "object" && !Array.isArray(evidenceRows[id])
+      ? evidenceRows[id] as Record<string, unknown>
+      : {};
+    const expectedTarget = id.startsWith("b_") ? targets.challenger : targets.control;
+    const status = entry.status;
+    const recording = entry.recording_url;
+    if (
+      entry.participant_url !== expectedTarget ||
+      status !== journeys[id] ||
+      (entry.target_kind !== "participant" && entry.target_kind !== "superserve_preview") ||
+      (status === "passed" && typeof recording !== "string")
+    ) {
+      throw new ReplayIngestionError("REPLAY_EVIDENCE_INVALID");
+    }
+    if (typeof recording === "string") {
+      try {
+        const url = new URL(recording);
+        if (url.protocol !== "https:" || url.hostname !== "app.replay.io" || !url.pathname.startsWith("/recording/")) {
+          throw new Error("recording");
+        }
+      } catch {
+        throw new ReplayIngestionError("REPLAY_EVIDENCE_INVALID");
+      }
+    }
+    const evidenceStatus = status as ReplayJourneyEvidence["status"];
+    const targetKind = entry.target_kind as NonNullable<ReplayJourneyEvidence["target_kind"]>;
+    evidence[id] = {
+      participant_url: expectedTarget,
+      ...(typeof recording === "string" ? { recording_url: recording } : {}),
+      ...(typeof entry.provider_journey_id === "string" ? { provider_journey_id: entry.provider_journey_id } : {}),
+      target_kind: targetKind,
+      status: evidenceStatus,
+    };
+  }
   if (
     typeof row.job_id !== "string" ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(row.job_id) ||
     typeof row.artifact_bundle_hash !== "string" ||
     !/^[a-f0-9]{64}$/.test(row.artifact_bundle_hash) ||
+    row.provider !== "replay_qa" ||
+    typeof row.project_id !== "string" ||
+    row.project_id.length < 3 ||
     (row.status !== "passed" && row.status !== "failed") ||
     !Number.isInteger(row.blocking_findings) ||
     Number(row.blocking_findings) < 0
@@ -117,10 +194,14 @@ function parsePayload(rawBody: string): ReplayResultPayload {
   return {
     job_id: row.job_id,
     artifact_bundle_hash: row.artifact_bundle_hash,
+    provider: "replay_qa",
+    project_id: row.project_id,
+    targets,
     status: row.status,
     ...(runUrl ? { run_url: runUrl } : {}),
     blocking_findings: Number(row.blocking_findings),
     journeys,
+    evidence,
   };
 }
 
@@ -226,7 +307,7 @@ export async function ingestReplayResult(
       );
     await transport.request("PATCH", "quality_gate_runs", { id: `eq.${String(gate.id)}` }, {
       checks_json: checks,
-      replay_run_id: headers.eventId,
+      replay_run_id: payload.project_id,
       replay_run_url: payload.run_url ?? null,
       replay_blocking_findings: payload.blocking_findings,
       gate_open: gateOpen,
