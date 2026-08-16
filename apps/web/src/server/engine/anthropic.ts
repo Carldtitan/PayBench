@@ -6,9 +6,11 @@ import {
   lockedFactsSchema,
   paywallSpecSchema,
   type ChangePlan,
+  type LockedFacts,
+  type LockedPlan,
   type PaywallSpec,
 } from "@paybench/contracts";
-import { validateChangePlan, validatePaywallSpec } from "../../../../../packages/paywall/src";
+import { buildPaywallVariants, validateChangePlan, validatePaywallSpec } from "../../../../../packages/paywall/src";
 
 export interface CapturedPageEvidence {
   source_url: string;
@@ -37,7 +39,7 @@ interface AnthropicOptions {
 const lockedFactsJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["product_name", "product_details", "price_display", "billing_terms", "legal_text", "claims", "trial_terms", "guarantee_terms"],
+  required: ["product_name", "product_details", "price_display", "billing_terms", "legal_text", "claims", "trial_terms", "guarantee_terms", "source_plans"],
   properties: {
     product_name: { type: "string", minLength: 1, maxLength: 2000 },
     product_details: { type: "array", minItems: 1, maxItems: 20, items: { type: "string", minLength: 1, maxLength: 2000 } },
@@ -47,6 +49,23 @@ const lockedFactsJsonSchema = {
     claims: { type: "array", maxItems: 30, items: { type: "string", minLength: 1, maxLength: 2000 } },
     trial_terms: { type: "array", maxItems: 10, items: { type: "string", minLength: 1, maxLength: 2000 } },
     guarantee_terms: { type: "array", maxItems: 10, items: { type: "string", minLength: 1, maxLength: 2000 } },
+    source_plans: {
+      type: "array",
+      minItems: 1,
+      maxItems: 8,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "price_display", "billing_terms", "product_details", "claims"],
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 2000 },
+          price_display: { type: "string", minLength: 1, maxLength: 2000 },
+          billing_terms: { type: "array", maxItems: 8, items: { type: "string", minLength: 1, maxLength: 2000 } },
+          product_details: { type: "array", maxItems: 16, items: { type: "string", minLength: 1, maxLength: 2000 } },
+          claims: { type: "array", maxItems: 12, items: { type: "string", minLength: 1, maxLength: 2000 } },
+        },
+      },
+    },
   },
 } as const;
 
@@ -112,53 +131,249 @@ function evidenceLines(evidence: CapturedPageEvidence): string[] {
     .split(/\r?\n+/)
     .map((line) => line.replace(/\s+/g, " ").trim())
     .filter((line) => line.length > 1 && line.length <= 2_000))]
-    .slice(0, 40);
+    .slice(0, 800);
+}
+
+function normalizeSourceText(value: string): string {
+  return value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase("en-US");
+}
+
+function sourceCorpus(evidence: CapturedPageEvidence): string {
+  const title = typeof evidence.brand_tokens.title === "string" ? evidence.brand_tokens.title : "";
+  return normalizeSourceText(`${title}\n${evidence.visible_text}`);
+}
+
+function isSourceSupported(value: unknown, evidence: CapturedPageEvidence): value is string {
+  if (typeof value !== "string") return false;
+  const normalized = normalizeSourceText(value);
+  return normalized.length > 0 && sourceCorpus(evidence).includes(normalized);
+}
+
+function sourceSupportedItems(value: unknown, evidence: CapturedPageEvidence, limit: number): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value
+    .filter((item): item is string => isSourceSupported(item, evidence))
+    .map((item) => item.replace(/\s+/g, " ").trim()))]
+    .slice(0, limit);
+}
+
+function collapseRepeatedPrice(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length % 2 === 0) {
+    const half = trimmed.slice(0, trimmed.length / 2);
+    if (half === trimmed.slice(trimmed.length / 2)) return half;
+  }
+  return trimmed;
+}
+
+function safePlanId(name: string, used: Set<string>): string {
+  const base = name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || "plan";
+  let candidate = /^[a-z]/.test(base) ? base : `plan-${base}`;
+  if (candidate.length < 2) candidate = `${candidate}-plan`;
+  let suffix = 2;
+  while (used.has(candidate)) candidate = `${base.slice(0, 28)}-${suffix++}`;
+  used.add(candidate);
+  return candidate;
+}
+
+function isPriceLine(line: string): boolean {
+  return /[$€£¥]\s*\d|\d[\d,.]*\s*(?:usd|eur|gbp)\b/i.test(line) || /^custom$/i.test(line);
+}
+
+function isPlanNameCandidate(line: string): boolean {
+  return line.length <= 80 &&
+    !isPriceLine(line) &&
+    !/^(?:pricing|plans?|monthly|yearly|annual|most popular|recommended|input|button|get started|contact sales)$/i.test(line) &&
+    !/\b(?:billed|billing|per user|per month|per year)\b/i.test(line);
+}
+
+/** Deterministically recovers pricing cards when model output is missing or incomplete. */
+export function extractSourcePlans(evidence: CapturedPageEvidence): LockedPlan[] {
+  const lines = evidenceLines(evidence);
+  const candidates: Array<{ nameIndex: number; priceIndex: number }> = [];
+  for (let priceIndex = 0; priceIndex < lines.length && candidates.length < 8; priceIndex += 1) {
+    if (!isPriceLine(lines[priceIndex]!)) continue;
+    let nameIndex = priceIndex - 1;
+    while (nameIndex >= Math.max(0, priceIndex - 4) && !isPlanNameCandidate(lines[nameIndex]!)) nameIndex -= 1;
+    if (nameIndex >= 0) candidates.push({ nameIndex, priceIndex });
+  }
+
+  const usedIds = new Set<string>();
+  const seen = new Set<string>();
+  const plans: LockedPlan[] = [];
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index]!;
+    const name = lines[candidate.nameIndex]!;
+    const priceDisplay = collapseRepeatedPrice(lines[candidate.priceIndex]!);
+    const key = `${normalizeSourceText(name)}\u0000${normalizeSourceText(priceDisplay)}`;
+    if (seen.has(key) || !isSourceSupported(priceDisplay, evidence)) continue;
+    seen.add(key);
+    const stop = candidates[index + 1]?.nameIndex ?? Math.min(lines.length, candidate.priceIndex + 20);
+    const rawBlock = lines.slice(candidate.priceIndex + 1, stop);
+    const actionIndex = rawBlock.findIndex((line) => /^(?:get started|contact sales|choose|select)(?:\s|$)/i.test(line));
+    const block = actionIndex >= 0 ? rawBlock.slice(0, actionIndex) : rawBlock;
+    const billingTerms = block.filter((line) => /\b(?:bill(?:ed|ing)?|month(?:ly)?|year(?:ly)?|annual(?:ly)?|one[- ]time)\b/i.test(line)).slice(0, 8);
+    const productDetails = block.filter((line) =>
+      !isPriceLine(line) &&
+      !billingTerms.includes(line) &&
+      !/^(?:input|button|get started|contact sales|learn more|choose|select)$/i.test(line) &&
+      !/^(?:terms|privacy|cookies?|legal)$/i.test(line),
+    ).slice(0, 16);
+    plans.push({
+      id: safePlanId(name, usedIds),
+      name,
+      price_display: priceDisplay,
+      billing_terms: billingTerms,
+      product_details: productDetails,
+      claims: [],
+    });
+  }
+  return plans;
+}
+
+function mergeSourcePlans(draft: Record<string, unknown>, evidence: CapturedPageEvidence): LockedPlan[] {
+  const draftLocked = draft.locked_facts && typeof draft.locked_facts === "object"
+    ? draft.locked_facts as Record<string, unknown>
+    : {};
+  const draftPlans = Array.isArray(draftLocked.source_plans) ? draftLocked.source_plans : [];
+  const safeDraftPlans = draftPlans.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const plan = value as Record<string, unknown>;
+    if (!isSourceSupported(plan.name, evidence) || !isSourceSupported(plan.price_display, evidence)) return [];
+    return [{
+      name: plan.name.replace(/\s+/g, " ").trim(),
+      price_display: collapseRepeatedPrice(plan.price_display.replace(/\s+/g, " ").trim()),
+      billing_terms: sourceSupportedItems(plan.billing_terms, evidence, 8),
+      product_details: sourceSupportedItems(plan.product_details, evidence, 16),
+      claims: sourceSupportedItems(plan.claims, evidence, 12),
+    }];
+  });
+  const inferred = extractSourcePlans(evidence);
+  const ordered = inferred.map((plan) => {
+    const modelPlan = safeDraftPlans.find((item) =>
+      normalizeSourceText(item.name) === normalizeSourceText(plan.name) &&
+      normalizeSourceText(item.price_display) === normalizeSourceText(plan.price_display));
+    return modelPlan ? {
+      ...plan,
+      billing_terms: [...new Set([...modelPlan.billing_terms, ...plan.billing_terms])].slice(0, 8),
+      product_details: [...new Set([...modelPlan.product_details, ...plan.product_details])].slice(0, 16),
+      claims: modelPlan.claims,
+    } : plan;
+  });
+  const usedIds = new Set(ordered.map((plan) => plan.id));
+  for (const plan of safeDraftPlans) {
+    if (ordered.some((item) => normalizeSourceText(item.name) === normalizeSourceText(plan.name))) continue;
+    ordered.push({ id: safePlanId(plan.name, usedIds), ...plan });
+  }
+  if (ordered.length > 0) return ordered.slice(0, 8);
+
+  const lines = evidenceLines(evidence);
+  const name = isSourceSupported(draftLocked.product_name, evidence)
+    ? draftLocked.product_name.trim()
+    : lines.find(isPlanNameCandidate) ?? new URL(evidence.source_url).hostname.replace(/^www\./, "");
+  const price = isSourceSupported(draftLocked.price_display, evidence)
+    ? collapseRepeatedPrice(draftLocked.price_display.trim())
+    : collapseRepeatedPrice(lines.find(isPriceLine) ?? name);
+  return [{
+    id: safePlanId(name, new Set()),
+    name,
+    price_display: price,
+    billing_terms: sourceSupportedItems(draftLocked.billing_terms, evidence, 8),
+    product_details: sourceSupportedItems(draftLocked.product_details, evidence, 16),
+    claims: sourceSupportedItems(draftLocked.claims, evidence, 12),
+  }];
+}
+
+function capturedBrandName(evidence: CapturedPageEvidence): string {
+  const title = typeof evidence.brand_tokens.title === "string" ? evidence.brand_tokens.title.trim() : "";
+  const titleParts = title.split(/\s+[–—|:]\s+/).filter(Boolean);
+  const titleName = titleParts.length > 1 && /^(?:pricing|plans?)$/i.test(titleParts[0]!) ? titleParts.at(-1) : titleParts[0];
+  const hostname = new URL(evidence.source_url).hostname.replace(/^www\./, "").split(".")[0] ?? "Product";
+  const raw = titleName && titleName.length <= 100 ? titleName : hostname;
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 function capturedColor(evidence: CapturedPageEvidence, index: number, fallback: string): string {
-  const colors = Object.values(evidence.brand_tokens)
-    .filter((value): value is string => typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value));
+  const flat: unknown[] = [];
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) value.forEach(visit);
+    else if (value && typeof value === "object") Object.values(value as Record<string, unknown>).forEach(visit);
+    else flat.push(value);
+  };
+  visit(evidence.brand_tokens);
+  const colors = flat.flatMap((value) => {
+    if (typeof value !== "string") return [];
+    if (/^#[0-9a-fA-F]{6}$/.test(value)) return [value];
+    const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(value);
+    return rgb ? [`#${rgb.slice(1, 4).map((part) => Number(part).toString(16).padStart(2, "0")).join("")}`] : [];
+  });
   return colors[index] ?? fallback;
 }
 
-/** Safe local continuation when a provider returns structurally invalid JSON. */
-export function createFallbackPaywallSpec(evidence: CapturedPageEvidence): PaywallSpec {
+function sanitizeLockedFacts(draft: Record<string, unknown>, evidence: CapturedPageEvidence): LockedFacts {
+  const raw = draft.locked_facts && typeof draft.locked_facts === "object"
+    ? draft.locked_facts as Record<string, unknown>
+    : {};
+  const sourcePlans = mergeSourcePlans(draft, evidence);
+  const planDetails = sourcePlans.flatMap((plan) => plan.product_details);
+  const planBilling = sourcePlans.flatMap((plan) => plan.billing_terms);
+  const productDetails = [...new Set([...sourceSupportedItems(raw.product_details, evidence, 20), ...planDetails])].slice(0, 20);
+  const billingTerms = [...new Set([...sourceSupportedItems(raw.billing_terms, evidence, 12), ...planBilling])].slice(0, 12);
   const lines = evidenceLines(evidence);
-  const hostname = new URL(evidence.source_url).hostname.replace(/^www\./, "");
-  const productName = (lines[0] ?? hostname.split(".")[0] ?? "Product").slice(0, 100);
-  const price = lines.find((line) => /[$€£¥]\s?\d/.test(line)) ?? lines[1] ?? productName;
-  const details = lines.filter((line) => line !== productName && line !== price).slice(0, 4);
-  const safeDetails = details.length > 0 ? details : [price];
-  const billing = lines.filter((line) => /month|year|annual|billing|billed|one[- ]time/i.test(line)).slice(0, 3);
-  const safeBilling = billing.length > 0 ? billing : [price];
-  const legal = lines.filter((line) => /terms|privacy|cancel|refund/i.test(line)).slice(0, 3);
-  const locked = lockedFactsSchema.parse({
+  const legalFromSource = lines.filter((line) => /\b(?:terms|privacy|cancel|refund|legal|agreement)\b/i.test(line)).slice(0, 20);
+  const legalText = [...new Set([...sourceSupportedItems(raw.legal_text, evidence, 20), ...legalFromSource])].slice(0, 20);
+  const productName = isSourceSupported(raw.product_name, evidence) ? raw.product_name.trim() : capturedBrandName(evidence);
+  const priceDisplay = sourcePlans[0]!.price_display;
+  return lockedFactsSchema.parse({
     product_name: productName,
-    product_details: safeDetails,
-    price_display: price,
-    billing_terms: safeBilling,
-    legal_text: legal.length > 0 ? legal : safeBilling,
-    claims: [],
-    trial_terms: [],
-    guarantee_terms: [],
+    product_details: productDetails.length > 0 ? productDetails : sourcePlans.map((plan) => plan.name),
+    price_display: priceDisplay,
+    billing_terms: billingTerms.length > 0 ? billingTerms : [priceDisplay],
+    legal_text: legalText.length > 0 ? legalText : [billingTerms[0] ?? priceDisplay],
+    claims: sourceSupportedItems(raw.claims, evidence, 30),
+    trial_terms: sourceSupportedItems(raw.trial_terms, evidence, 10),
+    guarantee_terms: sourceSupportedItems(raw.guarantee_terms, evidence, 10),
+    source_plans: sourcePlans,
   });
-  const brand = {
-    name: productName,
-    primary_color: capturedColor(evidence, 0, "#171717"),
-    accent_color: capturedColor(evidence, 1, "#5E6AD2"),
-    surface_color: capturedColor(evidence, 2, "#F7F7F8"),
-    text_color: capturedColor(evidence, 3, "#171717"),
-    font_family: "system-ui",
+}
+
+function sanitizeBrand(draft: Record<string, unknown>, evidence: CapturedPageEvidence) {
+  const raw = draft.brand && typeof draft.brand === "object" ? draft.brand as Record<string, unknown> : {};
+  const safeHex = (value: unknown, fallback: string) => typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value)
+    ? value
+    : fallback;
+  const capturedFont = typeof evidence.brand_tokens.font_family === "string" && evidence.brand_tokens.font_family.trim()
+    ? evidence.brand_tokens.font_family.trim().slice(0, 120)
+    : undefined;
+  return {
+    name: isSourceSupported(raw.name, evidence) ? raw.name.trim().slice(0, 100) : capturedBrandName(evidence),
+    primary_color: capturedColor(evidence, 0, safeHex(raw.primary_color, "#171717")),
+    accent_color: capturedColor(evidence, 1, safeHex(raw.accent_color, "#5E6AD2")),
+    surface_color: capturedColor(evidence, 2, safeHex(raw.surface_color, "#F7F7F8")),
+    text_color: capturedColor(evidence, 3, safeHex(raw.text_color, "#171717")),
+    font_family: capturedFont ?? (typeof raw.font_family === "string" && raw.font_family.trim() ? raw.font_family.trim().slice(0, 120) : "system-ui"),
   };
+}
+
+function buildFallbackPaywallSpec(evidence: CapturedPageEvidence): PaywallSpec {
+  const productName = capturedBrandName(evidence);
+  const locked = sanitizeLockedFacts({ locked_facts: { product_name: productName } }, evidence);
+  const brand = sanitizeBrand({}, evidence);
   return validatePaywallSpec(paywallSpecSchema.parse({
     contract_version: "2",
     source_url: evidence.source_url,
     brand,
     locked_facts: locked,
-    tree: buildControlTree({ brand, headline: productName, supporting_copy: safeDetails, primary_action_label: "Continue" }, locked),
+    tree: buildControlTree({ brand, headline: productName, supporting_copy: locked.product_details, primary_action_label: "Continue" }, locked),
     source_hash: evidence.source_hash,
     locked_facts_hash: sha256(locked),
   }));
+}
+
+/** Safe local continuation when a provider returns structurally invalid JSON. */
+export function createFallbackPaywallSpec(evidence: CapturedPageEvidence): PaywallSpec {
+  return buildFallbackPaywallSpec(evidence);
 }
 
 export function createFallbackChangePlan(specInput: PaywallSpec): ChangePlan {
@@ -222,6 +437,14 @@ function buildControlTree(draft: Record<string, unknown>, locked: ReturnType<typ
     : "Continue";
   const trust = locked.claims.length > 0 ? locked.claims : locked.product_details;
   const legal = [...locked.legal_text, ...locked.trial_terms, ...locked.guarantee_terms];
+  const plans = locked.source_plans ?? [{
+    id: "source-plan",
+    name: locked.product_name,
+    price_display: locked.price_display,
+    billing_terms: locked.billing_terms,
+    product_details: locked.product_details,
+    claims: locked.claims,
+  }];
   return {
     id: "paywall-shell",
     type: "PaywallShell",
@@ -229,7 +452,7 @@ function buildControlTree(draft: Record<string, unknown>, locked: ReturnType<typ
     children: [
       { id: "brand-header", type: "BrandHeader", props: { name: (draft.brand as Record<string, unknown>)?.name }, children: [] },
       { id: "offer-summary", type: "OfferSummary", props: { headline, supporting_copy: supportingCopy, product_name: locked.product_name, price_display: locked.price_display, billing_terms: locked.billing_terms }, children: [] },
-      { id: "plan-selector", type: "PlanSelector", props: { plans: [{ id: "source-plan", name: locked.product_name, price_display: locked.price_display, billing_terms: locked.billing_terms }], default_plan_id: "source-plan" }, children: [] },
+      { id: "plan-selector", type: "PlanSelector", props: { plans, default_plan_id: plans[0]!.id }, children: [] },
       { id: "benefit-list", type: "BenefitList", props: { items: locked.product_details }, children: [] },
       { id: "trust-panel", type: "TrustPanel", props: { items: trust }, children: [] },
       { id: "checkout-form", type: "CheckoutForm", props: { fake_customer_name: "Alex Example", fake_billing_address: "00000", fake_payment_token: "SIMULATED-PAYMENT", required_acknowledgement: "I understand this is a simulation and no money will be charged." }, children: [] },
@@ -296,17 +519,18 @@ export class AnthropicStructuredOutputAdapter implements PaywallModelAdapter {
     }
     if (Object.keys(evidence.brand_tokens).length > 200) throw new Error("CAPTURE_BRAND_TOKENS_TOO_LARGE");
     const draft = await this.structured(
-      `Extract a structured paywall draft from this measured capture. Copy commercial facts exactly; never invent a claim, price, term, trial, guarantee, or product detail. product_details, billing_terms, and legal_text must each contain at least one exact source string. claims, trial_terms, and guarantee_terms may be empty when the source does not state them. The headline and every supporting-copy item must each be an exact string from the extracted product name, product details, or claims. Evidence:\n${JSON.stringify(evidence)}`,
+      `Extract a structured paywall draft from this measured capture. Capture every distinct source pricing card in source_plans, in source order. Copy each plan name, displayed price, billing term, product detail, and claim verbatim from visible_text. Do not combine plans. Never invent a claim, price, term, trial, guarantee, or product detail. claims, trial_terms, and guarantee_terms must be empty when the source does not state them. Headline and supporting-copy items must be exact source strings. Evidence:\n${JSON.stringify(evidence)}`,
       "paywall_spec_draft",
       paywallDraftJsonSchema,
     ) as Record<string, unknown>;
-    const locked = lockedFactsSchema.parse(draft.locked_facts);
+    const locked = sanitizeLockedFacts(draft, evidence);
+    const brand = sanitizeBrand(draft, evidence);
     return validatePaywallSpec(paywallSpecSchema.parse({
       contract_version: "2",
       source_url: evidence.source_url,
-      brand: draft.brand,
+      brand,
       locked_facts: locked,
-      tree: buildControlTree(draft, locked),
+      tree: buildControlTree({ ...draft, brand }, locked),
       source_hash: evidence.source_hash,
       locked_facts_hash: sha256(locked),
     }));
@@ -319,13 +543,17 @@ export class AnthropicStructuredOutputAdapter implements PaywallModelAdapter {
       "change_plan_draft",
       changePlanDraftJsonSchema,
     ) as Record<string, unknown>;
-    return validateChangePlan(changePlanSchema.parse({
+    const plan = validateChangePlan(changePlanSchema.parse({
       contract_version: "2",
       hypothesis: draft.hypothesis,
       operation: draft.operation,
       source_spec_hash: spec.source_hash,
       locked_facts_hash: spec.locked_facts_hash,
     }));
+    // Apply once before returning. This rejects a model-selected value that is
+    // not already present in source-supported A, even when its JSON is valid.
+    buildPaywallVariants(spec, plan);
+    return plan;
   }
 }
 

@@ -70,6 +70,13 @@ function expectStringArray(value: unknown, label: string): string[] {
   return value;
 }
 
+function expectOptionalStringArray(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string" && item.trim())) {
+    throw new PaywallValidationError("PAYWALL_PROP_INVALID", `${label} must be a string array`);
+  }
+  return value;
+}
+
 function validatePlans(value: unknown): void {
   if (!Array.isArray(value) || value.length === 0 || value.length > 8) {
     throw new PaywallValidationError("PAYWALL_PLAN_INVALID", "PlanSelector requires one to eight plans");
@@ -81,14 +88,16 @@ function validatePlans(value: unknown): void {
       throw new PaywallValidationError("PAYWALL_PLAN_INVALID", "Every plan must be an object");
     }
     const record = plan as Record<string, unknown>;
-    const allowed = new Set(["id", "name", "price_display", "billing_terms"]);
+    const allowed = new Set(["id", "name", "price_display", "billing_terms", "product_details", "claims"]);
     if (Object.keys(record).some((key) => !allowed.has(key))) {
       throw new PaywallValidationError("PAYWALL_PLAN_PROP_FORBIDDEN", "A plan contains an unsupported property");
     }
     const id = expectString(record.id, "plan.id");
     expectString(record.name, "plan.name");
     expectString(record.price_display, "plan.price_display");
-    if (record.billing_terms !== undefined) expectStringArray(record.billing_terms, "plan.billing_terms");
+    if (record.billing_terms !== undefined) expectOptionalStringArray(record.billing_terms, "plan.billing_terms");
+    if (record.product_details !== undefined) expectOptionalStringArray(record.product_details, "plan.product_details");
+    if (record.claims !== undefined) expectOptionalStringArray(record.claims, "plan.claims");
     if (!/^[a-z][a-z0-9_-]{1,39}$/.test(id) || ids.has(id)) {
       throw new PaywallValidationError("PAYWALL_PLAN_ID_INVALID", "Plan IDs must be unique safe identifiers");
     }
@@ -234,10 +243,29 @@ export function validatePaywallSpec(input: unknown): PaywallSpec {
     ...locked.claims,
     ...locked.trial_terms,
     ...locked.guarantee_terms,
+    ...(locked.source_plans ?? []).flatMap((plan) => [
+      plan.name,
+      plan.price_display,
+      ...plan.billing_terms,
+      ...plan.product_details,
+      ...plan.claims,
+    ]),
   ];
   const omitted = requiredText.filter((value) => !values.has(value.trim()));
   if (omitted.length > 0) {
     throw new PaywallValidationError("LOCKED_FACT_MISSING", `Locked source text is missing from the component tree: ${omitted[0]}`);
+  }
+
+
+  if (locked.source_plans) {
+    const selector = nodes.find((node) => node.type === "PlanSelector");
+    const renderedPlans = selector?.props.plans;
+    if (!Array.isArray(renderedPlans) || JSON.stringify(renderedPlans) !== JSON.stringify(locked.source_plans)) {
+      throw new PaywallValidationError(
+        "LOCKED_PLANS_CHANGED",
+        "PlanSelector must reproduce every captured plan and its locked commercial facts exactly",
+      );
+    }
   }
 
   return spec;

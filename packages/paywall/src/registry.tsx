@@ -23,6 +23,8 @@ interface PlanRecord {
   name: string;
   price_display: string;
   billing_terms?: string[];
+  product_details?: string[];
+  claims?: string[];
 }
 
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
@@ -42,7 +44,7 @@ function OfferSummary({ node }: RegistryNodeProps): ReactElement {
 }
 
 function PlanSelector({ node, state, dispatch }: RegistryNodeProps): ReactElement {
-  return <fieldset className="pb-plans"><legend>Choose a plan</legend>{plans(node.props.plans).map((plan) => <label className="pb-plan" key={plan.id}><input type="radio" name="simulated-plan" value={plan.id} checked={state.selectedPlanId === plan.id} onChange={() => dispatch({ type: "select_plan", planId: plan.id })} /><span><strong>{plan.name}</strong><small>{plan.price_display}</small></span></label>)}</fieldset>;
+  return <fieldset className="pb-plans"><legend>Choose a plan</legend>{plans(node.props.plans).map((plan) => <label className="pb-plan" key={plan.id}><input type="radio" name="simulated-plan" value={plan.id} checked={state.selectedPlanId === plan.id} onChange={() => dispatch({ type: "select_plan", planId: plan.id })} /><span><strong>{plan.name}</strong><small>{plan.price_display}</small>{strings(plan.billing_terms).map((term) => <small key={term}>{term}</small>)}{strings(plan.product_details).map((detail) => <span key={detail}>{detail}</span>)}{strings(plan.claims).map((claim) => <span key={claim}>{claim}</span>)}</span></label>)}</fieldset>;
 }
 
 function BenefitList({ node }: RegistryNodeProps): ReactElement {

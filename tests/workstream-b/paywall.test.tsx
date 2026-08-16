@@ -43,6 +43,37 @@ describe("paywall registry", () => {
     })).toThrowError(/cannot add/);
   });
 
+  it("locks every multi-plan price, term, detail, and claim into A and B", () => {
+    const multiPlan = structuredClone(paywallFixture);
+    const sourcePlans = [
+      {
+        id: "growth",
+        name: "Growth",
+        price_display: "$29 / month",
+        billing_terms: ["Billed monthly"],
+        product_details: ["For startup teams"],
+        claims: ["Ship faster"],
+      },
+      {
+        id: "enterprise",
+        name: "Enterprise",
+        price_display: "Contact sales",
+        billing_terms: ["Terms apply."],
+        product_details: ["Northstar Growth"],
+        claims: [],
+      },
+    ];
+    multiPlan.locked_facts.source_plans = sourcePlans;
+    const selector = multiPlan.tree.children.find((node) => node.type === "PlanSelector")!;
+    selector.props.plans = structuredClone(sourcePlans);
+    expect(validatePaywallSpec(multiPlan).locked_facts.source_plans).toEqual(sourcePlans);
+
+    const altered = structuredClone(multiPlan);
+    const alteredSelector = altered.tree.children.find((node) => node.type === "PlanSelector")!;
+    (alteredSelector.props.plans as Array<Record<string, unknown>>)[1]!.price_display = "$99";
+    expect(() => validatePaywallSpec(altered)).toThrow(/Locked source text|reproduce every captured plan/);
+  });
+
   it("renders the fixed React registry without source HTML", () => {
     const state = createPaywallInteraction("growth");
     const html = renderToStaticMarkup(<PaywallRegistryView spec={paywallFixture} state={state} dispatch={() => undefined} />);

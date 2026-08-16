@@ -49,6 +49,21 @@ export const teracScreeningSpecSchema = z
 
 const lockedTextSchema = z.string().trim().min(1).max(2_000);
 
+/**
+ * Commercial facts for one source plan. These values are copied from the
+ * captured page and are part of the immutable fact bundle shared by A and B.
+ */
+export const lockedPlanSchema = z
+  .object({
+    id: z.string().regex(/^[a-z][a-z0-9_-]{1,39}$/),
+    name: lockedTextSchema,
+    price_display: lockedTextSchema,
+    billing_terms: z.array(lockedTextSchema).max(8),
+    product_details: z.array(lockedTextSchema).max(16),
+    claims: z.array(lockedTextSchema).max(12),
+  })
+  .strict();
+
 export const lockedFactsSchema = z
   .object({
     product_name: lockedTextSchema,
@@ -59,6 +74,9 @@ export const lockedFactsSchema = z
     claims: z.array(lockedTextSchema).max(30),
     trial_terms: z.array(lockedTextSchema).max(10),
     guarantee_terms: z.array(lockedTextSchema).max(10),
+    // Optional keeps contract-v2 records created before multi-plan capture
+    // readable. New engine output always includes this field.
+    source_plans: z.array(lockedPlanSchema).min(1).max(8).optional(),
   })
   .strict();
 
@@ -327,6 +345,7 @@ export const dashboardRunSnapshotV2Schema = z
 export type TargetCustomerSpec = z.infer<typeof targetCustomerSpecSchema>;
 export type TeracScreeningSpec = z.infer<typeof teracScreeningSpecSchema>;
 export type LockedFacts = z.infer<typeof lockedFactsSchema>;
+export type LockedPlan = z.infer<typeof lockedPlanSchema>;
 export type PaywallNode = z.infer<typeof paywallNodeSchema>;
 export type PaywallSpec = z.infer<typeof paywallSpecSchema>;
 export type ChangePlan = z.infer<typeof changePlanSchema>;
