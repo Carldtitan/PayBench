@@ -33,11 +33,21 @@ const stageNumber = (index: number) => String(index + 1).padStart(2, "0");
 
 function timeOnly(value?: string) {
   if (!value) return "—";
-  return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(new Date(value));
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/Los_Angeles",
+  }).format(new Date(value));
 }
 
 function shortDate(value: string) {
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value));
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/Los_Angeles",
+  }).format(new Date(value));
 }
 
 function hostOnly(value: string) {
@@ -568,7 +578,7 @@ function AccessGate({ onSuccess }: { onSuccess: () => Promise<void> }) {
 
 export function OperatorDashboard() {
   const [runs, setRuns] = useState<DashboardRunListItem[]>(demoRuns);
-  const [selectedId, setSelectedId] = useState(demoRuns[0].job_id);
+  const [selectedId, setSelectedId] = useState("");
   const [snapshot, setSnapshot] = useState<DashboardRunSnapshot>(demoSnapshots[demoRuns[0].job_id]);
   const [events, setEvents] = useState<DashboardRunEvent[]>(demoEvents[demoRuns[0].job_id] ?? []);
   const [mode, setMode] = useState<DataMode>("demo");
@@ -685,7 +695,7 @@ export function OperatorDashboard() {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     const apiAvailable = await loadRuns();
-    if (apiAvailable) await loadSnapshot(selectedId, true);
+    if (apiAvailable && selectedId) await loadSnapshot(selectedId, true);
     setRefreshing(false);
   }, [loadRuns, loadSnapshot, selectedId]);
 
@@ -694,17 +704,25 @@ export function OperatorDashboard() {
   }, [loadRuns]);
 
   useEffect(() => {
+    if (!selectedId) return;
     setEvents([]);
     const demo = demoSnapshots[selectedId];
     if (demo) {
       setSnapshot(demo);
     }
     void loadSnapshot(selectedId);
-    void loadOperatorStudy(selectedId);
-  }, [loadOperatorStudy, loadSnapshot, selectedId]);
+  }, [loadSnapshot, selectedId]);
 
   useEffect(() => {
-    if (needsAccess) return;
+    if (!selectedId || !["awaiting_approvals", "pilot", "main", "complete"].includes(snapshot.job_status)) {
+      setOperatorStudy(undefined);
+      return;
+    }
+    void loadOperatorStudy(selectedId);
+  }, [loadOperatorStudy, selectedId, snapshot.job_status]);
+
+  useEffect(() => {
+    if (needsAccess || !selectedId) return;
     setConnection("connecting");
     const stream = new EventSource(`/api/admin/runs/${encodeURIComponent(selectedId)}/events`);
 
@@ -734,7 +752,7 @@ export function OperatorDashboard() {
   }, [loadSnapshot, needsAccess, selectedId]);
 
   useEffect(() => {
-    if (needsAccess || mode === "demo") return;
+    if (needsAccess || mode === "demo" || !selectedId) return;
     const timer = window.setInterval(() => void loadSnapshot(selectedId, true), 15_000);
     return () => window.clearInterval(timer);
   }, [loadSnapshot, mode, needsAccess, selectedId]);
