@@ -9,6 +9,9 @@ export const jobStatusSchema = z.enum([
   "spec_ready",
   "building_variants",
   "quality_check",
+  "qa_replay",
+  "awaiting_approvals",
+  "pilot",
   "recruiting",
   "testing",
   "analyzing",
@@ -23,8 +26,10 @@ export const dashboardStageIdSchema = z.enum([
   "payment",
   "capture",
   "variants",
-  "study",
   "replay",
+  "approvals",
+  "pilot",
+  "study",
   "report",
   "delivery",
 ]);
@@ -95,7 +100,7 @@ export const dashboardArtifactSchema = z.object({
 });
 
 export const dashboardRunSnapshotSchema = z.object({
-  contract_version: z.literal("1"),
+  contract_version: z.literal("2"),
   job_id: z.string().uuid(),
   founder_label: z.string().min(1).max(64),
   website_url: z.string().url(),
@@ -107,7 +112,7 @@ export const dashboardRunSnapshotSchema = z.object({
   current_stage: dashboardStageIdSchema,
   blocker: z.object({ code: z.string().min(1), label: z.string().min(1).max(80) }).optional(),
   next_action: z.string().max(120).optional(),
-  stages: z.array(dashboardStageSchema).length(8),
+  stages: z.array(dashboardStageSchema).length(10),
   sandboxes: z.array(sandboxLiveStateSchema).max(2),
   study: z.object({
     target: z.number().int().nonnegative(),

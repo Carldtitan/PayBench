@@ -67,7 +67,7 @@ function isRunList(value: unknown): value is DashboardRunListItem[] {
 function isSnapshot(value: unknown): value is DashboardRunSnapshot {
   if (!value || typeof value !== "object") return false;
   const snapshot = value as Partial<DashboardRunSnapshot>;
-  return snapshot.contract_version === "1" && typeof snapshot.job_id === "string" && Array.isArray(snapshot.stages);
+  return snapshot.contract_version === "2" && typeof snapshot.job_id === "string" && Array.isArray(snapshot.stages);
 }
 
 function isRunEvent(value: unknown): value is DashboardRunEvent {
@@ -142,7 +142,7 @@ function RunRail({
 }
 
 function Rundown({ stages, currentStage }: { stages: DashboardStage[]; currentStage: DashboardStage["id"] }) {
-  const order: DashboardStage["id"][] = ["intake", "payment", "capture", "variants", "replay", "study", "report", "delivery"];
+  const order: DashboardStage["id"][] = ["intake", "payment", "capture", "variants", "replay", "approvals", "pilot", "study", "report", "delivery"];
   const orderedStages = [...stages].sort((left, right) => order.indexOf(left.id) - order.indexOf(right.id));
   return (
     <section className="rundown" aria-labelledby="rundown-title">

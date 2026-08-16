@@ -30,6 +30,6 @@ jobs:
       - name: Record private paywall checks
         run: npm run test:replay
         env:
-          REPLAY_QA_API_TOKEN: ${{ secrets.REPLAY_QA_API_TOKEN }}
+          REPLAY_API_KEY: ${{ secrets.REPLAY_API_KEY }}
           REPLAY_CONTROL_URL: ${{ inputs.control_url }}
           REPLAY_CHALLENGER_URL: ${{ inputs.challenger_url }}

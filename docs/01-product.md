@@ -7,7 +7,7 @@
 - A founder submits a website URL and a required target-customer description, then pays the existing $20 Stripe Payment Link.
 - Superserve captures the source privately. Anthropic returns a structured `PaywallSpec`; it never returns page code.
 - Control A renders that specification. Challenger B uses the same React tree and locked facts with exactly one approved `ChangePlan` operation.
-- Replay checks both pages on desktop and mobile before recruitment. It covers continue, stop, validation, survey, refresh assignment, and mocked redirect.
+- Replay Browser records Playwright checks against both private operator previews before recruitment. It covers continue, stop, validation, survey, refresh assignment, and mocked redirect. A recording is evidence, not an automatic pass.
 - The operator approves A/B and the total Terac quote. Sponsor-credit funding must also be confirmed.
 - One neutral PayBench URL serves 10 screened target customers. Five see A and five see B. Assignment is saved server-side before render.
 - The pilot opens first with one A and one B place. Four more A and four more B places unlock only after both pilots succeed.

@@ -4,10 +4,10 @@ import {
   replayReporter,
 } from "@replayio/playwright";
 
-const apiKey = process.env.REPLAY_QA_API_TOKEN ?? process.env.REPLAY_API_KEY;
+const apiKey = process.env.REPLAY_API_KEY;
 
 export default defineConfig({
-  testDir: "./tests/replay",
+  testDir: "./e2e/replay",
   timeout: 60_000,
   fullyParallel: false,
   forbidOnly: true,

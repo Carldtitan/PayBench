@@ -108,10 +108,12 @@ export const JobStatus = [
   "spec_ready",
   "building_variants",
   "quality_check",
+  "qa_replay",
+  "awaiting_approvals",
+  "pilot",
   "recruiting",
   "testing",
   "analyzing",
-  "replay_qa",
   "report_ready",
   "delivered",
   "failed",
@@ -120,7 +122,7 @@ export const JobStatus = [
 export const VariantLabel = ["A", "B"] as const;
 export const ParticipantDecision = ["complete_simulated_purchase", "stop_here"] as const;
 export const QualityStatus = ["pending", "valid", "flagged", "rejected", "technical_failure"] as const;
-export const StudyStatus = ["draft", "recruiting", "complete", "insufficient_sample", "failed"] as const;
+export const StudyStatus = ["draft", "qa", "awaiting_approvals", "pilot", "recruiting", "complete", "insufficient_evidence", "failed"] as const;
 ```
 
 Only the orchestration service can change `jobs.status`. A worker returns facts. It does not choose the next job state.
@@ -133,10 +135,10 @@ Every command uses this envelope:
 
 ```ts
 type WorkerCommand<T> = {
-  contract_version: "1";
+  contract_version: "2";
   request_id: string;
   job_id: string;
-  command_type: "capture_job" | "build_variants" | "start_study" | "run_replay_qa";
+  command_type: "capture_job" | "build_variants" | "draft_study" | "run_replay_qa";
   callback_url: string;
   payload: T;
 };
@@ -148,7 +150,7 @@ Every callback uses this envelope:
 
 ```ts
 type WorkerCallback<T> = {
-  contract_version: "1";
+  contract_version: "2";
   callback_id: string;
   request_id: string;
   job_id: string;
@@ -262,7 +264,7 @@ type StudyStarted = WorkerCallback<{
 ```ts
 type StudyResult = WorkerCallback<{
   study_id: string;
-  outcome: "complete" | "insufficient_sample" | "failed";
+  outcome: "complete" | "insufficient_evidence" | "failed";
   valid_a: number;
   valid_b: number;
   technical_failures: number;
@@ -369,7 +371,7 @@ type ReplayLiveState = {
 };
 
 type DashboardRunSnapshot = {
-  contract_version: "1";
+  contract_version: "2";
   job_id: string;
   founder_label: string;
   website_url: string;
@@ -481,12 +483,13 @@ paid -> capturing
 capturing -> needs_scout | spec_ready | failed
 needs_scout -> capturing | failed
 spec_ready -> building_variants
-building_variants -> quality_check | failed
-quality_check -> recruiting | building_variants | failed
+building_variants -> qa_replay | failed
+qa_replay -> awaiting_approvals | building_variants | failed
+awaiting_approvals -> pilot | failed
+pilot -> recruiting | failed
 recruiting -> testing
 testing -> analyzing | failed
-analyzing -> replay_qa | failed
-replay_qa -> report_ready | failed
+analyzing -> report_ready | failed
 report_ready -> delivered
 ```
 
@@ -499,9 +502,9 @@ The transition service records the old state, new state, actor, reason, and time
 | `CaptureJobResult: spec_ready` | Move `capturing -> spec_ready -> building_variants` and send `VariantBuildRequest` |
 | `VariantBuildResult: variants_ready` | Move `building_variants -> quality_check -> qa_replay`; recruit only after every gate and approval passes |
 | `StudyStarted: started` | Move `recruiting -> testing` |
-| `StudyResult: complete` | Move `testing -> analyzing -> replay_qa` and send `ReplayQaRequest` |
+| `StudyResult: complete` | Move `testing -> analyzing -> report_ready`; Replay already ran before recruitment |
 | `StudyResult: insufficient_evidence` | Follow the same report path and keep the conclusion directional |
-| `ReplayQaResult: passed` | Move `replay_qa -> report_ready` |
+| `ReplayQaResult: passed` | Move `qa_replay -> approvals`; recruitment stays locked until every other gate passes |
 | Any terminal `failed` result | Move the current job to `failed` with its stable error code |
 
 ### Contract fixtures
@@ -517,13 +520,13 @@ The shared phase creates these safe fixtures:
 - one accepted scout-evidence callback;
 - one variant-build request and result;
 - one valid variant manifest;
-- one study-start request and started callback;
+- one local study-draft request with a frozen 5 A / 5 B slot deck;
 - one valid A session and one valid B session;
 - one `stop_here` decision;
 - one technical failure;
 - one complete study result;
 - one Replay QA request and passed result;
-- one `no_clear_winner` report input.
+- one `no_clear_signal` directional report input.
 
 ### Shared contract definition of done
 
@@ -768,10 +771,12 @@ needs_scout
 spec_ready
 building_variants
 quality_check
+qa_replay
+awaiting_approvals
+pilot
 recruiting
 testing
 analyzing
-replay_qa
 report_ready
 delivered
 failed
@@ -900,7 +905,7 @@ Supabase now recommends `sb_publishable_...` and `sb_secret_...` keys. The secre
 | `LINQ_API_KEY` | Already supplied | Linq API access |
 | `LINQ_API_V3_API_KEY` | Already supplied | Linq SDK and CLI access |
 | `LINQ_PHONE_NUMBER` | Already supplied | Display the inbound PayBench number |
-| `REPLAY_QA_API_TOKEN` | Already supplied | Run Replay QA |
+| `REPLAY_API_KEY` | Get from Replay Test Suite team settings | Authenticate Replay Browser uploads |
 
 ## Stripe values
 
@@ -934,14 +939,11 @@ These cannot be completed before PayBench has a public HTTPS URL:
 - `STRIPE_WEBHOOK_SECRET`;
 - `LINQ_WEBHOOK_URL`;
 - `LINQ_WEBHOOK_SECRET`;
-- `REPLAY_TARGET_URL`;
 - production `APP_BASE_URL`.
 
 ## Replay setup choice
 
-Use `REPLAY_QA_API_TOKEN` for the sponsor QA loop.
-
-`REPLAY_API_KEY` is separate. It is only required if PayBench also records Playwright sessions with Replay Browser or uses Replay MCP. It is not required for the first complete MVP.
+Use one `REPLAY_API_KEY` from Replay Test Suite team settings. The supported flow is Replay Chromium plus the `@replayio/playwright` reporter on Linux. The existing `lqa_...` token does not authenticate that reporter, and PayBench does not call an undocumented `/runs` endpoint.
 
 ## Provisioning order
 
@@ -958,11 +960,11 @@ Use `REPLAY_QA_API_TOKEN` for the sponsor QA loop.
 11. Build the Next.js intake, report, webhook, and dashboard routes.
 12. Import the GitHub repository into Vercel and deploy PayBench to a public HTTPS URL.
 13. Create Stripe and Linq webhooks.
-14. Set the Replay target URL.
+14. Add `REPLAY_API_KEY` to GitHub Actions and run the Replay Playwright workflow against the two private operator previews.
 15. Run one unpaid sandbox test.
 16. Run one real $20 purchase end to end.
-17. Launch the Terac study.
-18. Fix Replay findings and rerun QA.
+17. Fix Replay findings and rerun QA before copying any Terac recruitment material.
+18. Keep the real Terac study unlaunched during this coding task.
 
 ## Parallel implementation workstreams
 

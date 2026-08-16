@@ -356,7 +356,7 @@ The dashboard never exposes a sandbox shell, secret binding, raw browser storage
 
 ### Replay surface
 
-Replay reports `queued`, `recording`, `checking`, `passed`, or `failed`, plus the current journey, completed checks, total checks, blocking finding count, last activity time, and time-limited run URL. The dashboard shows the live run link and findings as they arrive. It does not display recorded secrets, participant free text, or raw completion codes.
+Replay Browser records the Playwright suite on a Linux worker with `@replayio/playwright`. The worker reports `queued`, `recording`, `checking`, `passed`, or `failed`, plus the current journey, completed checks, total checks, blocking finding count, last activity time, and time-limited run URL. PayBench has no invented `/runs` HTTP integration. The dashboard shows only a verified recording link and allow-listed findings. It does not display recorded secrets, participant free text, or raw completion codes.
 
 ### Study surface
 
@@ -414,7 +414,7 @@ The worker validates all inputs and outputs with Zod schemas from `packages/cont
 | `StudyDraftRequest` | Prepare local slots and copy without a Terac network call | `StudyDrafted` |
 | `ReplayQaRequest` | Test both pages and the report input | `ReplayQaResult` |
 
-Every command uses `WorkerCommand` with `contract_version: "1"`, a unique `request_id`, `job_id`, `command_type`, `callback_url`, and typed payload.
+Every command uses `WorkerCommand` with `contract_version: "2"`, a unique `request_id`, `job_id`, `command_type`, `callback_url`, and typed payload.
 
 Every callback uses `WorkerCallback` with a unique `callback_id`, matching `request_id`, matching `job_id`, exact `result_type`, and typed payload.
 
@@ -638,7 +638,7 @@ Mark a session `valid` only when the assigned page loaded, the assignment stayed
 
 Mark empty, copied, contradictory, or too-fast responses `flagged`. Mark page crashes, missing artifacts, and network failures `technical_failure`. Technical failures never count as refusals.
 
-Stop at the target valid sample. Return `insufficient_sample` if either group stays below `minimum_valid_per_variant` when recruitment closes.
+Stop at the target valid sample. Return `insufficient_evidence` if either group stays below five valid sessions when recruitment closes.
 
 #### 11. Analyze and create report input
 
@@ -652,10 +652,10 @@ Exclude technical failures. Also calculate time, validation errors, backtracks, 
 
 Use these locked result rules:
 
-1. Fewer than the minimum valid sessions on either page gives `insufficient_sample` and `no_clear_winner`.
-2. B wins when its primary rate is at least 10 percentage points higher and neither median clarity nor trust falls by more than 0.5.
-3. A wins under the same rule in the other direction.
-4. Every other result is `no_clear_winner`.
+1. Fewer than five valid sessions on either page gives `insufficient_evidence`.
+2. B gets `b_stronger_signal` when its primary rate is at least 10 percentage points higher and neither median clarity nor trust falls by more than 0.5.
+3. A gets `a_stronger_signal` under the same rule in the other direction.
+4. Every other result is `no_clear_signal`.
 5. Never claim statistical significance from this sample.
 
 Write `metrics-v1.json` with formulas, denominators, exclusions, aggregates, and the applied rule.
@@ -666,7 +666,7 @@ Do not include phone numbers, Terac IDs, raw codes, or payment data. Do not rend
 
 Send one terminal `StudyResult` with `metrics_path` and `report_input_path`.
 
-Checkpoint: repeated analysis returns the same result and checksums. The shared no-winner fixture stays `no_clear_winner`.
+Checkpoint: repeated analysis returns the same result and checksums. The shared neutral fixture stays `no_clear_signal`.
 
 #### 12. Run Replay QA
 
@@ -696,7 +696,7 @@ Replay must not record secrets, raw tokens, raw codes, or survey free text.
 | Assignment changes | Reject session, `ASSIGNMENT_CONFLICT` |
 | Invalid event | Reject event, `EVENT_INVALID` |
 | Second decision | Keep first result, `DECISION_ALREADY_RECORDED` |
-| Too few valid sessions | `StudyResult: insufficient_sample`, `no_clear_winner` |
+| Too few valid sessions | `StudyResult: insufficient_evidence` |
 | Corrupt study data | `StudyResult: failed`, `STUDY_DATA_INVALID` |
 | Blocking Replay finding | `ReplayQaResult: failed`, `REPLAY_QA_FAILED` |
 | Callback unavailable | Retry the same callback without repeating work |
@@ -724,8 +724,7 @@ CaptureJobRequest
 -> StudyStarted
 -> valid A, B, stop, and technical-failure sessions
 -> StudyResult
--> ReplayQaRequest
--> ReplayQaResult: passed
+-> directional report
 ```
 
 Assert exact artifact paths, checksums, callback order, request matching, one side effect per request, and no secret values.

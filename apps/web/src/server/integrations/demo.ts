@@ -83,10 +83,10 @@ export function createDemoSponsorStatusAdapters(
       {
         async readStudy() {
           return {
-            target: 20,
-            valid: 12,
-            a_valid: 6,
-            b_valid: 6,
+            target: 10,
+            valid: 6,
+            a_valid: 3,
+            b_valid: 3,
             flagged: 1,
             rejected: 1,
             technical_failures: 1,

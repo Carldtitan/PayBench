@@ -19,8 +19,10 @@ const STAGE_ORDER: readonly DashboardStageId[] = [
   "payment",
   "capture",
   "variants",
-  "study",
   "replay",
+  "approvals",
+  "pilot",
+  "study",
   "report",
   "delivery",
 ];
@@ -33,8 +35,10 @@ const STAGE_META: Record<
   payment: { actor: "stripe", label: "Payment" },
   capture: { actor: "superserve", label: "Capture" },
   variants: { actor: "superserve", label: "Variants" },
-  study: { actor: "terac", label: "Study" },
   replay: { actor: "replay", label: "Replay" },
+  approvals: { actor: "paybench", label: "Approvals" },
+  pilot: { actor: "terac", label: "Pilot" },
+  study: { actor: "terac", label: "Study" },
   report: { actor: "paybench", label: "Report" },
   delivery: { actor: "linq", label: "Delivery" },
 };
@@ -47,7 +51,10 @@ const STATUS_STAGE: Record<Exclude<JobStatus, "failed">, DashboardStageId> = {
   needs_scout: "capture",
   spec_ready: "capture",
   building_variants: "variants",
-  quality_check: "variants",
+  quality_check: "replay",
+  qa_replay: "replay",
+  awaiting_approvals: "approvals",
+  pilot: "pilot",
   recruiting: "study",
   testing: "study",
   analyzing: "study",
@@ -211,7 +218,7 @@ export function deriveDashboardRunSnapshot(
     : undefined;
 
   const snapshot: DashboardRunSnapshot = {
-    contract_version: "1",
+    contract_version: "2",
     job_id: records.job.id,
     founder_label: records.job.founder_label,
     website_url: records.job.website_url,
@@ -259,4 +266,3 @@ export function deriveDashboardRunEvents(
     )
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
 }
-

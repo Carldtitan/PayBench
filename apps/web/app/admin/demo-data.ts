@@ -27,13 +27,15 @@ const activeStages: DashboardStage[] = [
   stage("capture", "Source captured", "superserve", "complete"),
   stage("variants", "A + B ready", "superserve", "complete"),
   stage("replay", "Checkout journeys", "replay", "complete", "12 of 12 · no blockers"),
-  stage("study", "Pilot release", "terac", "waiting", "0 of 2"),
+  stage("approvals", "Pages + quote", "paybench", "complete"),
+  stage("pilot", "First A + B", "terac", "complete", "2 of 2"),
+  stage("study", "Remaining places", "terac", "running", "2 of 10"),
   stage("report", "Direction report", "paybench", "waiting"),
   stage("delivery", "Founder delivery", "linq", "waiting"),
 ];
 
 const active: DashboardRunSnapshot = {
-  contract_version: "1",
+  contract_version: "2",
   job_id: "7c59d21a-9ef0-45f3-8958-b8b20f1d84c0",
   founder_label: "Northstar Labs",
   website_url: "https://example.com/pricing",
@@ -43,7 +45,7 @@ const active: DashboardRunSnapshot = {
   amount_paid_cents: 2000,
   currency: "usd",
   current_stage: "study",
-  next_action: "Approve pages and Terac quote",
+  next_action: "Collect the remaining eight sessions",
   stages: activeStages,
   sandboxes: [
     {
@@ -63,9 +65,9 @@ const active: DashboardRunSnapshot = {
   ],
   study: {
     target: 10,
-    valid: 0,
-    a_valid: 0,
-    b_valid: 0,
+    valid: 2,
+    a_valid: 1,
+    b_valid: 1,
     flagged: 0,
     rejected: 0,
     technical_failures: 0,
@@ -103,6 +105,8 @@ const scout: DashboardRunSnapshot = {
     stage("capture", "Scout evidence", "terac", "blocked", "Signed-in path required"),
     stage("variants", "A + B", "superserve", "waiting"),
     stage("replay", "Checkout journeys", "replay", "waiting"),
+    stage("approvals", "Pages + quote", "paybench", "waiting"),
+    stage("pilot", "First A + B", "terac", "waiting"),
     stage("study", "End-user study", "terac", "waiting"),
     stage("report", "Direction report", "paybench", "waiting"),
     stage("delivery", "Founder delivery", "linq", "waiting"),

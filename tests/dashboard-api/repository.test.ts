@@ -195,7 +195,7 @@ describe("SupabaseDashboardRepository", () => {
         {
           id: studyId,
           job_id: jobId,
-          target_sample_size: 20,
+          target_sample_size: 10,
           status: "running",
           started_at: "2026-08-15T20:26:00.000Z",
         },
@@ -250,7 +250,7 @@ describe("SupabaseDashboardRepository", () => {
     expect(snapshot?.source).toBe("live");
     expect(snapshot?.paid).toBe(true);
     expect(snapshot?.study).toEqual({
-      target: 20,
+      target: 10,
       valid: 1,
       a_valid: 1,
       b_valid: 0,

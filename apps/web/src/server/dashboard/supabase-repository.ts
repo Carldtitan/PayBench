@@ -113,8 +113,10 @@ const STAGE_ACTORS: Record<DashboardStageId, DashboardActor> = {
   payment: "stripe",
   capture: "superserve",
   variants: "superserve",
-  study: "terac",
   replay: "replay",
+  approvals: "paybench",
+  pilot: "terac",
+  study: "terac",
   report: "paybench",
   delivery: "linq",
 };
@@ -475,7 +477,10 @@ function eventStatus(
     needs_scout: "capture",
     spec_ready: "capture",
     building_variants: "variants",
-    quality_check: "variants",
+    quality_check: "replay",
+    qa_replay: "replay",
+    awaiting_approvals: "approvals",
+    pilot: "pilot",
     recruiting: "study",
     testing: "study",
     analyzing: "study",
@@ -483,7 +488,7 @@ function eventStatus(
     report_ready: "report",
     delivered: "delivery",
   };
-  const order: DashboardStageId[] = ["intake", "payment", "capture", "variants", "study", "replay", "report", "delivery"];
+  const order: DashboardStageId[] = ["intake", "payment", "capture", "variants", "replay", "approvals", "pilot", "study", "report", "delivery"];
   return order.indexOf(stage) < order.indexOf(currentStage[parsed.data])
     ? "complete"
     : "running";
@@ -681,4 +686,3 @@ export class SupabaseDashboardRepository implements DashboardRepository {
     );
   }
 }
-

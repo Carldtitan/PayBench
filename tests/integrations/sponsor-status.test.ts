@@ -194,7 +194,7 @@ describe("sponsor status adapters", () => {
       clock,
     );
     const terac = new TeracStatusAdapter(
-      { async readStudy() { return { target: 20, valid: 10, a_valid: 5, b_valid: 5, flagged: 1, rejected: 2, technical_failures: 1, worker_id: "hidden", active_assignment: "A" }; } },
+      { async readStudy() { return { target: 10, valid: 10, a_valid: 5, b_valid: 5, flagged: 1, rejected: 2, technical_failures: 1, worker_id: "hidden", active_assignment: "A" }; } },
       "live",
       clock,
     );
