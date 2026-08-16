@@ -59,6 +59,10 @@ function hash(value: unknown): string {
   return createHash("sha256").update(stable(value)).digest("hex");
 }
 
+function jobLog(jobId: string, step: string, details: Row = {}): void {
+  console.info("[paybench:run]", { job_id: jobId, step, ...details });
+}
+
 function hmac(secret: string, value: string): string {
   return createHmac("sha256", secret).update(value).digest("hex");
 }
@@ -134,6 +138,7 @@ export async function runPaidJob(
     replay?: ReplayExecutionAdapter;
   } = {},
 ): Promise<PaidJobRunResult> {
+  jobLog(jobId, "started");
   const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const signingSecret = process.env.APP_SIGNING_SECRET;
   if (!baseUrl || !signingSecret) throw new Error("ORCHESTRATION_STORAGE_MISSING");
@@ -162,14 +167,20 @@ export async function runPaidJob(
   }
 
   const sourceUrl = String(job.normalized_url ?? job.submitted_url);
+  jobLog(jobId, "capture_started", { source_url: sourceUrl });
   await updateJob(transport, jobId, { status: "capturing", failure_code: null });
   const scoutRepository = new SupabaseScoutTaskRepository(transport);
   let evidence = await acceptedScoutEvidence(scoutRepository, jobId);
   if (!evidence) {
     try {
       evidence = await (dependencies.capture ?? new SuperserveCaptureAdapter()).capture(jobId, sourceUrl);
+      jobLog(jobId, "capture_completed", {
+        source_hash: evidence.source_hash,
+        sandbox_id: "sandbox_id" in evidence ? evidence.sandbox_id : undefined,
+      });
     } catch (error) {
       const code = error instanceof Error ? error.message.slice(0, 80) : "SUPERSERVE_CAPTURE_FAILED";
+      console.error("[paybench:run]", { job_id: jobId, step: "capture_failed", code });
       await updateJob(transport, jobId, { status: "needs_scout", failure_code: code });
       try {
         const scout = await createScoutTaskForCaptureFailure(scoutRepository, {
@@ -420,6 +431,12 @@ export async function runPaidJob(
     };
   } catch (error) {
     const code = error instanceof Error ? error.message.slice(0, 80) : "PAID_JOB_RUN_FAILED";
+    console.error("[paybench:run]", {
+      job_id: jobId,
+      step: "failed",
+      code,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     await updateJob(transport, jobId, { status: "failed", failure_code: code });
     return { job_id: jobId, status: "failed", error_code: code };
   }
