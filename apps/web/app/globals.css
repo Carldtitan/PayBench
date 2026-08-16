@@ -771,12 +771,18 @@ h3 {
 }
 
 .monitor-shell > img,
+.monitor-shell > iframe,
 .demo-frame {
   display: block;
   width: 100%;
   height: 264px;
   border-radius: 8px;
   object-fit: cover;
+}
+
+.monitor-shell > iframe {
+  border: 0;
+  background: var(--white);
 }
 
 .demo-frame {
@@ -1396,6 +1402,7 @@ h3 {
   }
 
   .monitor-shell > img,
+  .monitor-shell > iframe,
   .demo-frame {
     height: 212px;
   }

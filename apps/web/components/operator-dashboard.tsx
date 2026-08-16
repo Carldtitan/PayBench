@@ -233,6 +233,14 @@ function SandboxMonitor({ sandbox, demo }: { sandbox: SandboxLiveState; demo: bo
           // The API provides a short-lived, private frame URL.
           // eslint-disable-next-line @next/next/no-img-element
           <img src={sandbox.latest_frame_url} alt={`Latest Superserve frame for variant ${sandbox.variant}`} referrerPolicy="no-referrer" />
+        ) : availableLink && sandbox.status === "ready" ? (
+          <iframe
+            src={availableLink}
+            title={`Live Superserve preview for variant ${sandbox.variant}`}
+            loading="eager"
+            referrerPolicy="no-referrer"
+            sandbox="allow-forms allow-scripts allow-same-origin"
+          />
         ) : (
           demo ? <DemoFrame variant={sandbox.variant} /> : <EmptyFrame variant={sandbox.variant} />
         )}
