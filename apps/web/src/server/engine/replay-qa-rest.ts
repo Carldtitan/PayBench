@@ -141,7 +141,7 @@ export function assertReplayParticipantTargets(
   if (control.url.toString() === challenger.url.toString()) {
     throw new ReplayGateError(
       "REPLAY_PARTICIPANT_TARGETS_AMBIGUOUS",
-      "Replay needs separate opaque QA participant links bound to A and B; one neutral link cannot prove both variants",
+      "Replay needs two distinct generated A and B targets; one neutral link cannot prove both variants",
     );
   }
   return { control, challenger };
@@ -244,7 +244,7 @@ export class ReplayQaRestAdapter implements ReplayExecutionAdapter {
       budget: this.budget,
       ...(this.finishedWebhookUrl ? { finished_webhook_url: this.finishedWebhookUrl } : {}),
     });
-    const projectId = textField(created, ["id", "project_id"]);
+    const projectId = textField(created, ["id", "project_id"]) ?? findStringDeep(created, new Set(["project_id"]));
     if (!projectId) throw new ReplayGateError("REPLAY_QA_PROJECT_INVALID", "Replay QA did not return a project ID");
     const projectUrl = textField(created, ["url", "project_url"]) ?? `https://qa.replay.io/projects/${encodeURIComponent(projectId)}`;
     const journeys: ReplayQaProject["journeys"] = {};
@@ -257,7 +257,7 @@ export class ReplayQaRestAdapter implements ReplayExecutionAdapter {
         target_url: target.url.toString(),
         polish: true,
       });
-      const journeyId = textField(createdJourney, ["id", "journey_id"]);
+      const journeyId = textField(createdJourney, ["id", "journey_id"]) ?? findStringDeep(createdJourney, new Set(["journey_id"]));
       if (!journeyId) throw new ReplayGateError("REPLAY_QA_JOURNEY_INVALID", `Replay QA did not create ${journey}`);
       journeys[journey] = journeyId;
     }
@@ -275,6 +275,8 @@ export class ReplayQaRestAdapter implements ReplayExecutionAdapter {
   private async readEvidence(project: ReplayQaProject): Promise<ReplayExecutionResult> {
     const bugPayload = await this.request("GET", `/projects/${encodeURIComponent(project.id)}/bugs?status=open&page=1&page_size=100`);
     const openBugs = rows(bugPayload);
+    const runPayload = await this.request("GET", `/projects/${encodeURIComponent(project.id)}/test-runs?page=1&page_size=100`);
+    const allRuns = rows(runPayload);
     const evidence: Partial<Record<ReplayJourneyId, ReplayJourneyEvidence>> = {};
     const journeys: ReplayExecutionResult["journeys"] = {};
     const recordings: string[] = [];
@@ -288,8 +290,11 @@ export class ReplayQaRestAdapter implements ReplayExecutionAdapter {
         evidence[journey] = { participant_url: participantUrl, target_kind: target.kind, status: "missing" };
         continue;
       }
-      const runPayload = await this.request("GET", `/projects/${encodeURIComponent(project.id)}/test-runs?journey_id=${encodeURIComponent(providerJourneyId)}&page=1&page_size=20`);
-      const runs = rows(runPayload);
+      const runs = allRuns.filter((run) => {
+        const journeyId = textField(run, ["journey_id", "journeyId"])
+          ?? findStringDeep(run, new Set(["journey_id", "journeyId"]));
+        return journeyId === providerJourneyId;
+      });
       const latest = runs[0];
       const statusText = textField(latest, ["status", "state", "result"])?.toLowerCase();
       const replay = recordingUrl(latest);

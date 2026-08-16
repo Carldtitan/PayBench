@@ -37,14 +37,14 @@ function replayApi(options: { missingJourney?: string; bugCount?: number } = {})
       return json({ items: Array.from({ length: options.bugCount ?? 0 }, (_, index) => ({ id: `bug-${index}` })) });
     }
     if (url.pathname.endsWith("/test-runs")) {
-      const providerJourneyId = url.searchParams.get("journey_id") ?? "";
-      const name = [...journeyIds.entries()].find(([, id]) => id === providerJourneyId)?.[0];
-      if (name === options.missingJourney) return json({ items: [] });
       return json({
-        items: [{
+        items: [...journeyIds.entries()]
+          .filter(([name]) => name !== options.missingJourney)
+          .map(([, journeyId]) => ({
+          journey_id: journeyId,
           status: "completed",
           recording_id: "11111111-1111-4111-8111-111111111111",
-        }],
+        })),
       });
     }
     return json({ error: "unexpected" }, 404);
